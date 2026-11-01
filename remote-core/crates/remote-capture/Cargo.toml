@@ -1,0 +1,13 @@
+[package]
+name = "remote-capture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+scrap = { path = "../../../libs/scrap" }
+
+[features]
+# Mirrors the source backend's optional native build feature.
+linux-pkg-config = ["scrap/linux-pkg-config"]
+wayland = ["scrap/wayland"]

@@ -1,0 +1,11 @@
+[workspace]
+members = ["crates/remote-capture"]
+resolver = "2"
+
+# These source patches are required by the RustDesk crates used by this prototype.
+[patch.crates-io]
+libxdo-sys = { path = "../libs/libxdo-sys-stub" }
+tungstenite = { git = "https://github.com/rustdesk-org/tungstenite-rs", rev = "efce47e5364f00a63302cf07ab1fb13ded478914" }
+webrtc = { git = "https://github.com/rustdesk-org/webrtc", rev = "49c89bd8d30e6e62e4c1a96cee38fdc11f79ef63" }
+webrtc-util = { git = "https://github.com/rustdesk-org/webrtc", rev = "49c89bd8d30e6e62e4c1a96cee38fdc11f79ef63" }
+webrtc-sctp = { git = "https://github.com/rustdesk-org/webrtc", rev = "49c89bd8d30e6e62e4c1a96cee38fdc11f79ef63" }

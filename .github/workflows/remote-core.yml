@@ -1,0 +1,36 @@
+name: RemoteCore capture prototype
+on:
+  push:
+    branches: [arena/d2b8eee8-rustdesk]
+    paths:
+      - 'remote-core/**'
+      - '.github/workflows/remote-core.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config libvpx-dev libyuv-dev libaom-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxfixes-dev libdbus-1-dev libsodium-dev xvfb xauth
+          if ! pkg-config --exists libyuv; then
+            mkdir -p "$RUNNER_TEMP/pkgconfig"
+            printf 'prefix=/usr\nlibdir=${prefix}/lib/x86_64-linux-gnu\nincludedir=${prefix}/include\nName: libyuv\nDescription: libyuv\nVersion: 1.0\nLibs: -L${libdir} -lyuv\nCflags: -I${includedir}\n' > "$RUNNER_TEMP/pkgconfig/libyuv.pc"
+            echo "PKG_CONFIG_PATH=$RUNNER_TEMP/pkgconfig" >> "$GITHUB_ENV"
+          fi
+      - name: Check and unit tests
+        run: |
+          cargo check --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
+          cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
+      - name: Capture a virtual display
+        run: REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config --test x11_capture -- --nocapture
