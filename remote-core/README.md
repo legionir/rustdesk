@@ -35,3 +35,10 @@ capabilities have not been removed from RustDesk; they have not yet been
 adapted. The decoder must not be used with untrusted streams: packet size checks
 do not limit dimensions or native decoder allocations. No security audit has
 been performed.
+
+A Linux CI run on commit `2fd23de` passed workspace `cargo check`, software
+codec unit round trips, and an Xvfb display capture test:
+https://github.com/legionir/rustdesk/actions/runs/41342856512. It does not
+validate the full RustDesk baseline, other platforms, hardware codecs, or
+security. The prototype does not yet commit a standalone lockfile; dependency
+resolution may therefore change between runs.

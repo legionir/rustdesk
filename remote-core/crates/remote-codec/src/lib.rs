@@ -216,17 +216,22 @@ mod tests {
     #[test]
     fn round_trip_software_codecs() {
         for codec in [Codec::Vp8, Codec::Vp9, Codec::Av1] {
-            let mut encoder = SoftwareEncoder::new(config(codec)).unwrap();
-            let layout = encoder.layout();
-            let mut pixels = vec![128; layout.buffer_len];
-            pixels[..layout.u_offset].fill(80);
-            let encoded = encoder.encode(&pixels, 0).unwrap();
-            assert!(!encoded.packets.is_empty());
-            assert!(encoded.packets.iter().any(|p| p.key));
-            let mut decoder = SoftwareDecoder::new(codec).unwrap();
-            let decoded = decoder.decode(&encoded).unwrap().expect("decoded picture");
-            assert_eq!((decoded.width, decoded.height), (64, 64));
-            assert_eq!(decoded.data.len(), 64 * 64 * 4);
+            for (width, height) in [(64, 64), (66, 34)] {
+                let mut cfg = config(codec);
+                cfg.width = width;
+                cfg.height = height;
+                let mut encoder = SoftwareEncoder::new(cfg).unwrap();
+                let layout = encoder.layout();
+                let mut pixels = vec![128; layout.buffer_len];
+                pixels[..layout.u_offset].fill(80);
+                let encoded = encoder.encode(&pixels, 0).unwrap();
+                assert!(!encoded.packets.is_empty());
+                assert!(encoded.packets.iter().any(|p| p.key));
+                let mut decoder = SoftwareDecoder::new(codec).unwrap();
+                let decoded = decoder.decode(&encoded).unwrap().expect("decoded picture");
+                assert_eq!((decoded.width, decoded.height), (width as usize, height as usize));
+                assert_eq!(decoded.data.len(), (width * height * 4) as usize);
+            }
         }
     }
 
