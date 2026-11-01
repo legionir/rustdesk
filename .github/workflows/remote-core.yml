@@ -30,6 +30,8 @@ jobs:
           fi
       - name: Check and unit tests
         shell: bash
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           run_cargo() {
             local log="$RUNNER_TEMP/remote-core-cargo.log"
@@ -37,11 +39,13 @@ jobs:
               tail -n 20 "$log"
             else
               tail -n 40 "$log"
-              while IFS= read -r line; do
-                line=${line//'%'/'%25'}
-                line=${line//$'\r'/'%0D'}
-                echo "::error::$line"
-              done < <(tail -n 40 "$log")
+              python3 - "$log" <<'PYCODE'
+          import pathlib, sys
+          lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          text = "\n".join(lines[-120:])[-20000:]
+          text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::error::" + text)
+          PYCODE
               return 1
             fi
           }
