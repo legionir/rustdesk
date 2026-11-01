@@ -29,8 +29,23 @@ jobs:
             echo "PKG_CONFIG_PATH=$RUNNER_TEMP/pkgconfig" >> "$GITHUB_ENV"
           fi
       - name: Check and unit tests
+        shell: bash
         run: |
-          cargo check --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
-          cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
+          run_cargo() {
+            local log="$RUNNER_TEMP/remote-core-cargo.log"
+            if "$@" >"$log" 2>&1; then
+              tail -n 20 "$log"
+            else
+              tail -n 40 "$log"
+              while IFS= read -r line; do
+                line=${line//'%'/'%25'}
+                line=${line//$'\r'/'%0D'}
+                echo "::error::$line"
+              done < <(tail -n 40 "$log")
+              return 1
+            fi
+          }
+          run_cargo cargo check --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
+          run_cargo cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
       - name: Capture a virtual display
         run: REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config --test x11_capture -- --nocapture
