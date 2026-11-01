@@ -22,7 +22,7 @@ jobs:
       - name: Install native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config libvpx-dev libyuv-dev libaom-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxfixes-dev libdbus-1-dev libsodium-dev xvfb xauth
+          sudo apt-get install -y clang libclang-dev pkg-config libvpx-dev libyuv-dev libaom-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxfixes-dev libdbus-1-dev libsodium-dev xvfb xauth
           if ! pkg-config --exists libyuv; then
             mkdir -p "$RUNNER_TEMP/pkgconfig"
             printf 'prefix=/usr\nlibdir=${prefix}/lib/x86_64-linux-gnu\nincludedir=${prefix}/include\nName: libyuv\nDescription: libyuv\nVersion: 1.0\nLibs: -L${libdir} -lyuv\nCflags: -I${includedir}\n' > "$RUNNER_TEMP/pkgconfig/libyuv.pc"
