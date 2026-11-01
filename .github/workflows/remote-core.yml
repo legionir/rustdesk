@@ -52,5 +52,53 @@ jobs:
           }
           run_cargo cargo check --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
           run_cargo cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
-      - name: Capture a virtual display
-        run: REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config --test x11_capture -- --nocapture
+      - name: Capture and encode a virtual display
+        run: |
+          REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml -p remote-capture --features linux-pkg-config --test x11_capture -- --nocapture
+          REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml -p remote-codec --features linux-pkg-config --test capture_pipeline -- --nocapture
+
+  capture-codec-windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: never
+      VCPKG_COMMIT_ID: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - name: Set up pinned vcpkg
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
+        with:
+          vcpkgDirectory: C:\vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+      - name: Install native codecs
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          "$VCPKG_ROOT/vcpkg.exe" install libvpx libyuv aom --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
+      - name: Check and test Windows workspace
+        shell: bash
+        run: |
+          run_cargo() {
+            local log="$RUNNER_TEMP/remote-core-windows-cargo.log"
+            if "$@" >"$log" 2>&1; then
+              tail -n 20 "$log"
+            else
+              tail -n 40 "$log"
+              python - "$log" <<'PYCODE'
+          import pathlib, sys
+          lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          lines = [line for line in lines if len(line) < 1000]
+          text = "\n".join(lines[-80:])[-12000:]
+          text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::error::" + text)
+          PYCODE
+              return 1
+            fi
+          }
+          run_cargo cargo check --manifest-path remote-core/Cargo.toml --workspace
+          run_cargo cargo test --manifest-path remote-core/Cargo.toml --workspace

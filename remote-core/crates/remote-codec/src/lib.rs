@@ -18,6 +18,15 @@ pub enum Codec {
     Av1,
 }
 
+/// Packed four-byte input format in memory order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackedFormat {
+    /// Blue, green, red, alpha bytes.
+    Bgra,
+    /// Red, green, blue, alpha bytes.
+    Rgba,
+}
+
 /// Encoder initialization parameters.
 #[derive(Clone, Copy, Debug)]
 pub struct EncoderConfig {
@@ -78,6 +87,9 @@ pub struct SoftwareEncoder {
     native: Encoder,
     codec: Codec,
     layout: I420Layout,
+    width: usize,
+    height: usize,
+    converted: Vec<u8>,
 }
 
 impl SoftwareEncoder {
@@ -119,7 +131,7 @@ impl SoftwareEncoder {
             return Err(invalid("invalid backend I420 plane offsets"));
         }
         let layout = I420Layout { u_offset: format.u, v_offset: format.v, y_stride: strides[0], u_stride: strides[1], v_stride: strides[2], buffer_len: v_end };
-        Ok(Self { native, codec: config.codec, layout })
+        Ok(Self { native, codec: config.codec, layout, width: config.width as usize, height: config.height as usize, converted: vec![0; layout.buffer_len] })
     }
 
     /// Get the exact padded I420 layout required by this instance.
@@ -133,18 +145,50 @@ impl SoftwareEncoder {
         self.native.set_quality(quality).map_err(codec_error)
     }
 
+    /// Convert packed BGRA or RGBA pixels using RustDesk's libyuv conversion and encode.
+    /// The source stride and buffer are validated before native code is called.
+    /// Dimensions must match the encoder configuration; recreate the encoder on resize.
+    pub fn encode_packed(&mut self, data: &[u8], stride: usize, format: PackedFormat, pts_ms: i64) -> io::Result<EncodedFrame> {
+        let row_bytes = self.width.checked_mul(4).ok_or_else(|| invalid("row size overflow"))?;
+        let required = stride.checked_mul(self.height).ok_or_else(|| invalid("source size overflow"))?;
+        if stride < row_bytes || stride > i32::MAX as usize || data.len() < required {
+            return Err(invalid("invalid packed pixel buffer or stride"));
+        }
+        let l = self.layout;
+        let buffer = &mut self.converted;
+        // Plane offsets and lengths were checked at construction and the input
+        // bounds/strides were checked above. These planes do not overlap.
+        let result = unsafe {
+            let base = buffer.as_mut_ptr();
+            let convert = match format {
+                PackedFormat::Bgra => scrap::ARGBToI420,
+                PackedFormat::Rgba => scrap::ABGRToI420,
+            };
+            convert(data.as_ptr(), stride as i32, base, l.y_stride as i32,
+                base.add(l.u_offset), l.u_stride as i32, base.add(l.v_offset),
+                l.v_stride as i32, self.width as i32, self.height as i32)
+        };
+        if result != 0 { return Err(codec_error(format!("libyuv conversion failed: {result}"))); }
+        let video = self.native.encode_to_message(EncodeInput::YUV(buffer), pts_ms).map_err(codec_error)?;
+        Self::pack(self.codec, video)
+    }
+
     /// Encode one padded I420 image, with a presentation timestamp in milliseconds.
     /// The backend may return an error when it produces no output.
     pub fn encode(&mut self, i420: &[u8], pts_ms: i64) -> io::Result<EncodedFrame> {
         if i420.len() < self.layout.buffer_len { return Err(invalid("I420 buffer too short")); }
         let video = self.native.encode_to_message(EncodeInput::YUV(i420), pts_ms).map_err(codec_error)?;
+        Self::pack(self.codec, video)
+    }
+
+    fn pack(codec: Codec, video: base::message_proto::VideoFrame) -> io::Result<EncodedFrame> {
         let packets = match video.union {
-            Some(video_frame::Union::Vp8s(v)) if self.codec == Codec::Vp8 => v.frames,
-            Some(video_frame::Union::Vp9s(v)) if self.codec == Codec::Vp9 => v.frames,
-            Some(video_frame::Union::Av1s(v)) if self.codec == Codec::Av1 => v.frames,
+            Some(video_frame::Union::Vp8s(v)) if codec == Codec::Vp8 => v.frames,
+            Some(video_frame::Union::Vp9s(v)) if codec == Codec::Vp9 => v.frames,
+            Some(video_frame::Union::Av1s(v)) if codec == Codec::Av1 => v.frames,
             _ => return Err(codec_error("encoder returned unexpected codec")),
         };
-        Ok(EncodedFrame { codec: self.codec, packets: packets.into_iter().map(|p| Packet { data: p.data.to_vec(), key: p.key, pts: p.pts }).collect() })
+        Ok(EncodedFrame { codec, packets: packets.into_iter().map(|p| Packet { data: p.data.to_vec(), key: p.key, pts: p.pts }).collect() })
     }
 }
 
@@ -232,6 +276,24 @@ mod tests {
                 assert_eq!((decoded.width, decoded.height), (width as usize, height as usize));
                 assert_eq!(decoded.data.len(), (width * height * 4) as usize);
             }
+        }
+    }
+
+    #[test]
+    fn packed_round_trip_and_input_validation() {
+        for format in [PackedFormat::Bgra, PackedFormat::Rgba] {
+            let mut encoder = SoftwareEncoder::new(config(Codec::Vp9)).unwrap();
+            assert!(encoder.encode_packed(&[], 256, format, 0).is_err());
+            assert!(encoder.encode_packed(&vec![0; 64 * 64 * 4], 3, format, 0).is_err());
+            assert!(encoder.encode_packed(&[], usize::MAX, format, 0).is_err());
+            let mut input = vec![0; 64 * 64 * 4];
+            for pixel in input.chunks_exact_mut(4) { pixel.copy_from_slice(&[100, 100, 100, 255]); }
+            let frame = encoder.encode_packed(&input, 256, format, 0).unwrap();
+            let mut decoder = SoftwareDecoder::new(Codec::Vp9).unwrap();
+            let decoded = decoder.decode(&frame).unwrap().unwrap();
+            assert_eq!((decoded.width, decoded.height), (64, 64));
+            // Lossy compression and YUV conversion may introduce small rounding differences.
+            for value in &decoded.data[..3] { assert!((i32::from(*value) - 100).abs() <= 12); }
         }
     }
 
