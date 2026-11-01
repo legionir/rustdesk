@@ -1,0 +1,7 @@
+# Architecture direction — provisional, not Gate B
+
+Proposed dependency direction: application facade/session orchestration → independently owned capture, codec, input, security, protocol and transport interfaces → platform/source adapters. A RustDesk-compatibility adapter can initially retain the existing protobuf schema and configuration dependencies. Keep platform/native dependencies isolated from transport; make transport independent of video/session. Do not finalize crate boundaries until `cargo metadata` and service lifecycles have been traced. In particular scrap currently combines capture and codec and both depend on base, so splitting them requires work rather than moving directories.
+
+A web viewer needs a browser-compatible transport, decoder and renderer; a native Rust crate does not automatically provide them. Owner approval, strong authentication, bounded messages, authorization on every action, key release on disconnect and secure TLS defaults are required design constraints, not implemented guarantees. The exact session state machine, reconnection, protocol compatibility and permission semantics need evidence and human approval before implementation.
+
+Suggested next sequence: unblock and reproduce baseline → complete data/protocol/security/platform graph → Gate A review → architecture/ADR and human decisions → Gate B → small independently tested extraction increments → end-to-end and security validation. No extraction has begun.

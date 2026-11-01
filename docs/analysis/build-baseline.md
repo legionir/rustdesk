@@ -1,0 +1,7 @@
+# Build baseline — blocked
+
+At the unmodified source commit, commands `cargo build --workspace`, `cargo test --workspace`, and `cargo metadata --locked --format-version 1` each failed immediately with `/bin/bash: cargo: command not found` (exit 127). No compiler, build, dependency resolution, or tests ran. These are environment failures, not evidence of source defects or success. `rustc --version` likewise returned command not found. No runtime or platform test has run.
+
+README.md build instructions list vcpkg libvpx, libyuv, opus and aom, compiler and system packages including clang and GTK, and GStreamer development packages on Linux. The actual required packages depend on target/features; vcpkg and native libraries were not validated. Check toolchain availability, install the project's documented prerequisites, then repeat baseline with recorded feature flags, target, exit codes and complete logs. Confirm compatibility with Rust 1.75 rather than assuming it.
+
+Continuation: checked `~/.cargo/bin`, `/usr/local/cargo/bin`, `/usr/bin/rust*`, relevant environment variables, and `apt-cache policy rustc cargo`; no installed compiler/toolchain or package candidates were found. The environment allows outbound connections only to a restricted host list; ordinary Rust distribution and Debian package endpoints are not available. Do not substitute the manifest's 1.75 requirement for an installed version. Build and tests remain blocked.
