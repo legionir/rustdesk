@@ -42,7 +42,8 @@ jobs:
               python3 - "$log" <<'PYCODE'
           import pathlib, sys
           lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
-          text = "\n".join(lines[-120:])[-20000:]
+          lines = [line for line in lines if len(line) < 1000]
+          text = "\n".join(lines[-80:])[-12000:]
           text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
           print("::error::" + text)
           PYCODE
