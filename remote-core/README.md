@@ -24,3 +24,14 @@ The display test is opt-in because it accesses a real display. CI runs it on an
 isolated virtual X11 display. Wayland, Windows and macOS require independent
 validation. Review `../LICENCE` and the licenses and provenance of all source
 and dependencies before distribution; the final licensing decision is pending.
+
+## Software codec prototype
+
+`remote-codec` adapts the source VP8/VP9/libaom AV1 encoder/decoder for padded
+I420 input and packed CPU output. The implementation is experimental: it does
+not yet offer capture-to-codec conversion, H.264/H.265, hardware codecs,
+packet-loss recovery, codec negotiation or resolution changes in-place. These
+capabilities have not been removed from RustDesk; they have not yet been
+adapted. The decoder must not be used with untrusted streams: packet size checks
+do not limit dimensions or native decoder allocations. No security audit has
+been performed.
