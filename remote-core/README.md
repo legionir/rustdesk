@@ -161,3 +161,23 @@ not authenticate the server or bind to TLS. It must not be exposed to remote
 peers without a separately authenticated encrypted channel, rate limits,
 trusted consent and security review. It has not yet been built or tested and
 does not implement RustDesk 2FA or the complete login flow.
+
+### Experimental Windows local pipeline
+
+`windows_local_pipeline` exercises password-challenge calculation and a locally
+recorded approval, display capture, VP9 encode, RustDesk protobuf, local
+transport and decode in one process. It is **not** a remote viewer, does not
+render, does not test mouse/keyboard, and its approval is not a human-consent
+UI. It captures a real display. Run only on a disposable, interactive Windows
+desktop after reviewing the source and native prerequisites:
+
+```powershell
+$env:REMOTE_CORE_EXAMPLE_PASSWORD = "a strong example-only password"
+cargo run --manifest-path remote-core/Cargo.toml -p remote-core --example windows_local_pipeline -- --confirm-capture
+Remove-Item Env:REMOTE_CORE_EXAMPLE_PASSWORD
+```
+
+Environment variables may be visible to local processes; do not use a real
+credential. Dimensions must satisfy the prototype encoder's even 2–4096 pixel
+bounds, and the first capture may return `WouldBlock`. The example is not yet
+built or tested.
