@@ -524,6 +524,23 @@ pub mod video {
         }
         /// Whether the encoder must be recreated after a failed/cancelled send.
         pub fn needs_reset(&self) -> bool { self.encoder.is_none() }
+        /// Source-reported encoder bitrate and dynamic-quality capability.
+        pub fn encoder_stats(&self) -> Result<(u32, bool), VideoError> {
+            let encoder = self.encoder.as_ref().ok_or(VideoError::EncoderResetRequired)?;
+            Ok((encoder.bitrate(), encoder.supports_quality_change()))
+        }
+        /// Change quality in place. A backend failure discards the encoder,
+        /// because its state after a partial native mutation is unknown.
+        pub fn set_quality(&mut self, quality: f32) -> Result<(), VideoError> {
+            if !quality.is_finite() || quality <= 0.0 || quality > 2.0 {
+                return Err(VideoError::Codec(io::Error::new(io::ErrorKind::InvalidInput, "quality must be positive and at most 2")));
+            }
+            let mut encoder = self.encoder.take().ok_or(VideoError::EncoderResetRequired)?;
+            encoder.set_quality(quality)?;
+            self.config.quality = quality;
+            self.encoder = Some(encoder);
+            Ok(())
+        }
 
         /// Convert and encode one packed captured frame, then send its protobuf envelope.
         ///

@@ -115,6 +115,22 @@ impl CapturePump {
         }
         Ok(())
     }
+    /// Read backend-reported bitrate and in-place quality capability for this
+    /// pump. The host/session binding and view permission must still be live.
+    pub fn encoder_stats<B: InputBackend>(&self, host: &HostInputSession<B>) -> Result<(u32, bool), CapturePumpError> {
+        if self.stopped || host.id() != self.session_id || !host.permissions().view_screen || host.state() != SessionState::Streaming {
+            return Err(CapturePumpError::NotAuthorized);
+        }
+        Ok(self.sender.encoder_stats()?)
+    }
+    /// Apply a locally chosen quality ratio to the existing encoder. A failure
+    /// requires encoder recreation and downstream decoder resynchronization.
+    pub fn set_quality<B: InputBackend>(&mut self, host: &HostInputSession<B>, quality: f32) -> Result<(), CapturePumpError> {
+        if self.stopped || host.id() != self.session_id || !host.permissions().view_screen || host.state() != SessionState::Streaming {
+            return Err(CapturePumpError::NotAuthorized);
+        }
+        self.sender.set_quality(quality)?; Ok(())
+    }
     /// Recreate the encoder after an interrupted or failed send. The caller must
     /// coordinate decoder refresh and verify the new config matches the display.
     pub fn reset_encoder(&mut self, config: EncoderConfig) -> Result<(), CapturePumpError> {

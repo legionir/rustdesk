@@ -299,6 +299,17 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
             Err(e) => { self.phase = Phase::Authorized; Err(ConnectionError::Capture(e)) },
         }
     }
+    /// Obtain source encoder statistics for this authorized session's pump.
+    pub fn capture_encoder_stats(&self, pump: &CapturePump) -> Result<(u32, bool), ConnectionError> {
+        if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
+        Ok(pump.encoder_stats(&self.host)?)
+    }
+    /// Apply a caller-approved quality ratio to this session's pump. No QoS
+    /// algorithm or source decoder capability claim is applied automatically.
+    pub fn set_capture_quality(&mut self, pump: &mut CapturePump, quality: f32) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
+        pump.set_quality(&self.host, quality)?; Ok(())
+    }
     /// Stop a pump started for this session. Drop it afterwards to release the
     /// native capture handle. This does not close the host connection.
     pub fn stop_capture(&mut self, pump: &mut CapturePump) -> Result<(), ConnectionError> {

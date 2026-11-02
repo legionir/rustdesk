@@ -156,6 +156,11 @@ impl SoftwareEncoder {
         self.native.set_quality(quality).map_err(codec_error)
     }
 
+    /// Current backend-reported target bitrate in kbps, not measured traffic.
+    pub fn bitrate(&self) -> u32 { self.native.bitrate() }
+    /// Whether the backend reports support for changing quality in place.
+    pub fn supports_quality_change(&self) -> bool { self.native.support_changing_quality() }
+
     /// Convert packed BGRA or RGBA pixels using RustDesk's libyuv conversion and encode.
     /// The source stride and buffer are validated before native code is called.
     /// Dimensions must match the encoder configuration; recreate the encoder on resize.
