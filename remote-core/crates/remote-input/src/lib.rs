@@ -448,3 +448,36 @@ mod partial_delivery_tests {
         assert_eq!(&*events.borrow(), &["down-maybe-delivered", "release-attempt", "release-attempt"]);
     }
 }
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+    use std::{cell::{Cell, RefCell}, rc::Rc};
+    struct Fake { events: Rc<RefCell<Vec<&'static str>>>, fail_up: Rc<Cell<bool>> }
+    impl InputBackend for Fake {
+        fn move_to(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn mouse_down(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn mouse_up(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn key_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn key_up(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn scan_down(&mut self, _: ScanCode) -> io::Result<()> { self.events.borrow_mut().push("down"); Ok(()) }
+        fn scan_up(&mut self, _: ScanCode) -> io::Result<()> {
+            self.events.borrow_mut().push("up");
+            if self.fail_up.get() { Err(io::Error::new(io::ErrorKind::Other, "fake release failure")) } else { Ok(()) }
+        }
+    }
+    #[test]
+    fn revoke_retains_failed_scan_release_until_close() {
+        let events = Rc::new(RefCell::new(Vec::new())); let fail = Rc::new(Cell::new(true));
+        let mut input = InputController::new(Fake { events: events.clone(), fail_up: fail.clone() });
+        input.set_permissions(Permissions { keyboard: true, mouse: false }).unwrap();
+        input.scan_down(ScanCode::new(0xe01d).unwrap()).unwrap();
+        assert!(matches!(input.key_down(VirtualKey::new(65).unwrap()), Err(InputError::AlreadyPressed)));
+        assert!(input.set_permissions(Permissions::default()).is_err());
+        assert!(input.has_held_scans());
+        fail.set(false); input.close().unwrap();
+        assert!(!input.has_held_scans());
+        assert_eq!(&*events.borrow(), &["down", "up", "up"]);
+    }
+}
