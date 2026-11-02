@@ -38,3 +38,15 @@ capacity rather than evicting the oldest. It does not implement rate limiting,
 trust relay-provided client IPs without separate validation. Bypass paths and
 multiple processes are outside its scope. It has not been built or tested; the
 policy difference requires security review before deployment.
+
+A new **experimental and untested** `source_crypto` adapter reuses the pinned
+source's signed `IdPk`, `PublicKey`, secretbox framing and version-1 split-key
+implementation on an owned ordered binary transport. Its viewer explicitly
+pins the host signing key and exact host ID; the host still needs password and
+local owner approval to authorize a viewer. Unlike source fallback behavior it
+rejects unsigned peers, v0 and malformed/short encrypted frames, and closes on
+failure or cancellation. It does not implement a rendezvous signature chain,
+key provisioning/rotation/revocation, WebRTC fingerprint binding, 2FA, complete
+RustDesk compatibility or an audited replay/DoS defense. These policy choices
+are provisional and require human security review. They do not make this
+prototype production-ready or safe for untrusted traffic. No tests were run.
