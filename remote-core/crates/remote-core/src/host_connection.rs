@@ -287,6 +287,34 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         pump.start(&mut self.host)?;
         Ok(pump)
     }
+    /// Open an opt-in Windows GPU capture pump after view authorization.
+    /// Codec support and real display consent must be established separately.
+    #[cfg(all(target_os = "windows", feature = "vram"))]
+    pub fn start_vram_capture(&mut self, display: Display, display_index: i32, codec: remote_capture::vram::VramCodec,
+        quality: f32, keyframe_interval: Option<usize>, limit: usize) -> Result<crate::vram_pump::VramVideoPump, ConnectionError> {
+        if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
+        let pump = crate::vram_pump::VramVideoPump::open(&self.host, display, display_index, codec, quality, keyframe_interval, limit)?;
+        pump.start(&mut self.host)?; Ok(pump)
+    }
+    /// Send one GPU-encoded frame. Native work may block; failed/cancelled
+    /// output requires capture/decoder recreation and a new keyframe.
+    #[cfg(all(target_os = "windows", feature = "vram"))]
+    pub async fn send_vram_capture(&mut self, pump: &mut crate::vram_pump::VramVideoPump,
+        capture_wait: Duration, send_wait: Duration, pts_ms: i64) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
+        self.phase = Phase::Busy;
+        let result = pump.send_network(&self.host, &mut self.transport, capture_wait, send_wait, pts_ms).await;
+        match result {
+            Ok(()) => { self.phase = Phase::Authorized; Ok(()) },
+            Err(CapturePumpError::Video(crate::video::VideoError::Network(e))) => { self.abort(); Err(ConnectionError::Network(e)) },
+            Err(e) => { self.phase = Phase::Authorized; Err(ConnectionError::Capture(e)) },
+        }
+    }
+    #[cfg(all(target_os = "windows", feature = "vram"))]
+    pub fn stop_vram_capture(&mut self, pump: &mut crate::vram_pump::VramVideoPump) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
+        pump.stop(&mut self.host)?; Ok(())
+    }
     /// Send one frame over this connection. Capture/encode can block the runtime.
     /// Cancellation leaves the connection Busy; close/drop it instead of retrying.
     pub async fn send_capture(&mut self, pump: &mut CapturePump, capture_wait: Duration, send_wait: Duration, pts_ms: i64) -> Result<(), ConnectionError> {
