@@ -8,7 +8,7 @@
 //! trusted environment pending design review, implementation and tests.
 //!
 //! There is no upstream end-to-end encryption handshake, 2FA, trusted-device
-//! flow, peer-info/login-response builder, rate limiting, consent UI, codec
+//! flow, full peer-info/login-response semantics, rate limiting, consent UI, codec
 //! negotiation, event loop, heartbeat, reconnect, or cross-process input lock.
 //! Untrusted login claims never identify the password holder. A trusted caller
 //! supplies the policy and must ensure it is a real local owner decision.
@@ -36,7 +36,7 @@ pub struct LoginClaims {
 struct PendingLogin { claims: LoginClaims, response: Zeroizing<Vec<u8>> }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Phase { New, Busy, PendingApproval, Authorized, Closed }
+enum Phase { New, Busy, PendingApproval, Approved, Authorized, Closed }
 
 /// Lifecycle, protocol, admission, or transport error.
 #[derive(Debug)]
@@ -54,6 +54,8 @@ pub enum ConnectionError {
     Keyboard(windows_keyboard::DispatchError),
     /// Cursor wire validation/compression failed.
     Cursor(remote_protocol::cursor::CursorError),
+    /// Desktop metadata or login response validation failed.
+    Desktop(remote_protocol::desktop::DesktopError),
     /// Local Windows cursor sampling failed.
     CursorCapture(std::io::Error),
 }
@@ -72,6 +74,7 @@ impl fmt::Display for ConnectionError {
             Self::Mouse(e) => write!(f, "mouse: {e}"),
             Self::Keyboard(e) => write!(f, "keyboard: {e}"),
             Self::Cursor(e) => write!(f, "cursor protocol: {e}"),
+            Self::Desktop(e) => write!(f, "desktop metadata: {e}"),
             Self::CursorCapture(e) => write!(f, "cursor capture: {e}"),
         }
     }
@@ -151,7 +154,7 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         let bytes = Envelope::password_challenge_event(&challenge.salt, &challenge.challenge)?.encode(MAX_PRE_AUTH_BYTES)?;
         self.transport.send(&bytes, first_wait).await?;
         let wait = self.remaining(deadline)?;
-        let raw = self.transport.receive(wait).await?;
+        let raw = Zeroizing::new(self.transport.receive(wait).await?.into_vec());
         self.remaining(deadline)?;
         let envelope = Envelope::decode(&raw, MAX_PRE_AUTH_BYTES)?;
         let login = envelope.desktop_login()?;
@@ -178,11 +181,31 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
             // Approval is synchronous and may take time; expiration still denies.
             self.permit.as_ref().ok_or(ConnectionError::InvalidState)?.check_live()?;
             self.permit.take().ok_or(ConnectionError::InvalidState)?.authorization_complete();
-            self.phase = Phase::Authorized;
+            self.phase = Phase::Approved;
             Ok(login.claims)
         })();
         if result.is_err() { self.abort(); }
         result
+    }
+    /// Send a basic RustDesk success response after password and owner approval.
+    /// Callers must supply truthful, consented metadata and only actual runtime
+    /// codec abilities. This subset omits source features, original resolutions,
+    /// 2FA and trusted-device fields; it is not full peer compatibility. A
+    /// caller without view permission must not expose display metadata here.
+    /// Cancellation leaves the connection Busy and requires close/drop.
+    pub async fn send_login_success(&mut self, info: &remote_protocol::desktop::PeerInfo, deadline: Duration) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Approved || deadline.is_zero()
+            || (!self.host.permissions().view_screen && !info.displays.is_empty()) {
+            return Err(ConnectionError::InvalidState);
+        }
+        let message = Envelope::desktop_login_success(info).map_err(ConnectionError::Desktop)?
+            .encode(MAX_PRE_AUTH_BYTES.min(self.max_post_auth_bytes))?;
+        self.phase = Phase::Busy;
+        if let Err(error) = self.transport.send(&message, deadline).await {
+            self.abort(); return Err(ConnectionError::Network(error));
+        }
+        self.phase = Phase::Authorized;
+        Ok(())
     }
     /// Open and start a software capture pump for this authorized session.
     /// Only one live pump should be used per session; the caller must coordinate

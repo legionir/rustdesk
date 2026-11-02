@@ -53,6 +53,10 @@ async fn password_owner_approval_and_input_share_owned_stream() {
     host.authorize(permissions, &mut approval).unwrap();
     assert_eq!(host.state(), SessionState::Connected);
     assert_eq!(admission.active().unwrap(), 0);
+    let peer = remote_protocol::desktop::PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
+    host.send_login_success(&peer, WAIT).await.unwrap();
+    let reply = viewer.receive(WAIT).await.unwrap();
+    assert!(matches!(Envelope::decode(&reply, LIMIT).unwrap().desktop_login_result().unwrap(), remote_protocol::desktop::LoginResult::Accepted(_)));
     let event = Envelope::mouse_event(MouseEvent { mask: 0, x: -12, y: 18 }).encode(LIMIT).unwrap();
     viewer.send(&event, WAIT).await.unwrap();
     host.receive_input(WAIT).await.unwrap();
