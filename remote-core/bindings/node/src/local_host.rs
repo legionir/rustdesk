@@ -254,6 +254,23 @@ impl LocalHostSession {
         let busy = SessionBusy::acquire(&self.state)?;
         Ok(AsyncTask::new(SendFrameTask { state: self.state.clone(), _busy: busy, display_index, capture_wait: Duration::from_millis(capture_timeout_ms.into()), send_wait }))
     }
+    /// Send a bounded VP9 burst using one capture and encoder instance. This
+    /// holds a libuv worker and serializes all host operations for the burst;
+    /// it is not an autonomous session server. Viewer support and local owner
+    /// consent are separate caller responsibilities.
+    #[napi]
+    pub fn send_vp9_burst(&self, display_index: u32, confirm_viewer_vp9: bool, fps: u32, max_frames: u32,
+        max_duration_ms: u32, capture_timeout_ms: u32, send_timeout_ms: u32) -> Result<AsyncTask<SendBurstTask>> {
+        if !confirm_viewer_vp9 { return Err(Error::from_reason("viewer VP9 support must be explicitly confirmed")); }
+        if !(1..=30).contains(&fps) || !(1..=120).contains(&max_frames) || !(250..=5000).contains(&max_duration_ms)
+            || !(1..=2000).contains(&capture_timeout_ms) {
+            return Err(Error::from_reason("invalid bounded burst settings"));
+        }
+        let send_wait = wait(send_timeout_ms)?;
+        let busy = SessionBusy::acquire(&self.state)?;
+        Ok(AsyncTask::new(SendBurstTask { state: self.state.clone(), _busy: busy, display_index, fps, max_frames,
+            max_duration: Duration::from_millis(max_duration_ms.into()), capture_wait: Duration::from_millis(capture_timeout_ms.into()), send_wait }))
+    }
     /// Sample the current Windows cursor after consent and send shape/position.
     /// Returns false if hidden/unavailable. Non-Windows platforms reject this
     /// method. Does not support secure desktop or portable-service capture.
@@ -376,6 +393,64 @@ impl Task for SendFrameTask {
         Ok(())
     }
     fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
+}
+
+/// One bounded burst; a single native capture/encoder is created and destroyed
+/// on the same libuv worker. No raw texture or capturer crosses worker threads.
+pub struct SendBurstTask { state: Arc<SessionState>, _busy: SessionBusy, display_index: u32, fps: u32, max_frames: u32,
+    max_duration: Duration, capture_wait: Duration, send_wait: Duration }
+impl Task for SendBurstTask {
+    type Output = u32;
+    type JsValue = u32;
+    fn compute(&mut self) -> Result<u32> {
+        use remote_codec::{Codec, EncoderConfig};
+        use remote_core::{capture_pump::CapturePumpError, video_schedule::FrameCadence};
+        let mut lock = self.state.data.lock().map_err(|_| Error::from_reason("host session state poisoned"))?;
+        let session = lock.as_mut().ok_or_else(|| Error::from_reason("host session closed"))?;
+        let index = usize::try_from(self.display_index).map_err(js_error)?;
+        let approved = session.approved_displays.as_ref().and_then(|items| items.get(index)).ok_or_else(|| Error::from_reason("display was not approved"))?.clone();
+        let display = remote_capture::displays().map_err(js_error)?.into_iter().nth(index).ok_or_else(|| Error::from_reason("display is no longer available"))?;
+        if display.info() != &approved { return Err(Error::from_reason("display enumeration changed; re-approval required")); }
+        let config = EncoderConfig { codec: Codec::Vp9, width: u32::try_from(approved.width).map_err(js_error)?,
+            height: u32::try_from(approved.height).map_err(js_error)?, quality: 1.0, keyframe_interval: Some(30) };
+        let display_wire = i32::try_from(self.display_index).map_err(js_error)?;
+        let rt = runtime()?;
+        let mut cadence = FrameCadence::new(self.fps).map_err(js_error)?;
+        let started = Instant::now();
+        let end = started.checked_add(self.max_duration).ok_or_else(|| Error::from_reason("invalid burst deadline"))?;
+        let mut pump = session.host.start_capture(display, display_wire, config, POSTAUTH).map_err(js_error)?;
+        let result = (|| -> Result<u32> {
+            let mut sent = 0;
+            while sent < self.max_frames {
+                let now = Instant::now();
+                if now >= end { break; }
+                if let Some(delay) = cadence.remaining(now).map_err(js_error)? {
+                    std::thread::sleep(delay.min(end.saturating_duration_since(now)));
+                    continue;
+                }
+                cadence.begin_attempt(now).map_err(js_error)?;
+                // The exact display handle is retained by the pump. Recheck the
+                // approved snapshot too; metadata equality is not a stable ID.
+                let current = remote_capture::displays().map_err(js_error)?.into_iter().nth(index).ok_or_else(|| Error::from_reason("display is no longer available"))?;
+                if current.info() != &approved { return Err(Error::from_reason("display enumeration changed; re-approval required")); }
+                let remaining = end.saturating_duration_since(Instant::now());
+                if remaining.is_zero() { break; }
+                let pts = i64::try_from(started.elapsed().as_millis()).map_err(js_error)?;
+                match rt.block_on(session.host.send_capture(&mut pump, self.capture_wait.min(remaining), self.send_wait.min(remaining), pts)) {
+                    Ok(()) => sent += 1,
+                    Err(remote_core::host_connection::ConnectionError::Capture(CapturePumpError::Capture(e))) if e.kind() == io::ErrorKind::WouldBlock => {},
+                    Err(error) => return Err(js_error(error)),
+                }
+            }
+            Ok(sent)
+        })();
+        // Always attempt to leave the streaming lifecycle, including when
+        // enumeration/encoding fails. Network abort may already close it.
+        let stop = session.host.stop_capture(&mut pump);
+        drop(pump);
+        match result { Err(error) => Err(error), Ok(sent) => { stop.map_err(js_error)?; Ok(sent) } }
+    }
+    fn resolve(&mut self, _: Env, sent: u32) -> Result<u32> { Ok(sent) }
 }
 
 /// Untrusted host-side event. Capabilities are serialized as an isolated

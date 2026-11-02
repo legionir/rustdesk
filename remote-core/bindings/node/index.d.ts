@@ -116,6 +116,9 @@ export class LocalHostSession {
   approveView(confirmLocalConsent: boolean, timeoutMs: number): Promise<void>;
   /** One independently encoded frame; not continuous video or a codec negotiation. */
   sendOneVp9Frame(displayIndex: number, confirmViewerVp9: boolean, captureTimeoutMs: number, sendTimeoutMs: number): Promise<void>;
+  /** One paced VP9 stream burst, at most 5 seconds and 120 frames. No concurrent host operations. */
+  sendVp9Burst(displayIndex: number, confirmViewerVp9: boolean, fps: number, maxFrames: number,
+    maxDurationMs: number, captureTimeoutMs: number, sendTimeoutMs: number): Promise<number>;
   /** Timeout closes the session; requests are untrusted and are not executed automatically. */
   receiveEvent(timeoutMs: number): Promise<LocalHostEvent>;
   sampleWindowsCursor(timeoutMs: number): Promise<boolean>;
