@@ -142,6 +142,22 @@ impl<B: InputBackend> HostInputSession<B> {
     ) -> Result<(), video::VideoError> {
         sender.send_packed_network(&self.session, transport, display, pixels, stride, format, pts_ms, deadline).await
     }
+    /// Send one hardware-encoded frame over a network-oriented stream.
+    /// Authentication, codec negotiation and peer binding remain external.
+    #[cfg(feature = "hwcodec")]
+    pub async fn send_hardware_video_network(
+        &mut self,
+        sender: &mut video::HardwareVideoSender,
+        transport: &mut dyn remote_transport::NetworkTransport,
+        display: i32,
+        pixels: &[u8],
+        stride: usize,
+        format: remote_codec::PackedFormat,
+        pts_ms: i64,
+        deadline: std::time::Duration,
+    ) -> Result<(), video::VideoError> {
+        sender.send_packed_network(&self.session, transport, display, pixels, stride, format, pts_ms, deadline).await
+    }
     /// Move the mouse in virtual-desktop coordinates, after authorization.
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<(), HostInputError> {
         self.session.check(Action::ControlMouse)?;
@@ -519,6 +535,59 @@ pub mod video {
                 data: packet.data, key: packet.key, pts: packet.pts,
             }).collect();
             let wire = Envelope::video_event(display, wire_codec(self.config.codec), &packets)?.encode(self.max_envelope_bytes)?;
+            transport.send(&wire, deadline).await?;
+            self.encoder = Some(encoder);
+            Ok(())
+        }
+    }
+
+    /// Optional H.264/H.265 RAM video sender using RustDesk's hardware encoder.
+    ///
+    /// This does not negotiate the codec or implement hardware decoding. On any
+    /// failed/cancelled send the encoder is discarded and must be recreated;
+    /// the remote decoder also needs an explicit resynchronization strategy.
+    #[cfg(feature = "hwcodec")]
+    pub struct HardwareVideoSender {
+        encoder: Option<remote_codec::hardware::HardwareEncoder>,
+        max_envelope_bytes: usize,
+    }
+    #[cfg(feature = "hwcodec")]
+    impl HardwareVideoSender {
+        /// Select the source-configured hardware RAM backend.
+        pub fn new(config: remote_codec::hardware::HardwareEncoderConfig, max_envelope_bytes: usize) -> Result<Self, VideoError> {
+            if max_envelope_bytes == 0 || max_envelope_bytes > MAX_ENVELOPE_BYTES {
+                return Err(VideoError::Protocol(ProtocolError::InvalidLimit));
+            }
+            Ok(Self { encoder: Some(remote_codec::hardware::HardwareEncoder::new(config)?), max_envelope_bytes })
+        }
+        /// Whether interruption has discarded the encoder.
+        pub fn needs_reset(&self) -> bool { self.encoder.is_none() }
+        /// Replace an encoder after a stream failure and coordinate peer resynchronization separately.
+        pub fn reset(&mut self, config: remote_codec::hardware::HardwareEncoderConfig) -> Result<(), VideoError> {
+            self.encoder = None;
+            self.encoder = Some(remote_codec::hardware::HardwareEncoder::new(config)?);
+            Ok(())
+        }
+        /// Encode one packed frame and send the original RustDesk video envelope.
+        /// Send failure/cancellation can have an indeterminate delivery outcome.
+        pub async fn send_packed_network(
+            &mut self, session: &Session, transport: &mut dyn remote_transport::NetworkTransport,
+            display: i32, pixels: &[u8], stride: usize, format: PackedFormat, pts_ms: i64, deadline: Duration,
+        ) -> Result<(), VideoError> {
+            if session.state() != SessionState::Streaming {
+                return Err(VideoError::Session(SessionError::InvalidState { state: session.state(), operation: "send video" }));
+            }
+            session.check(Action::ViewScreen)?;
+            let mut encoder = self.encoder.take().ok_or(VideoError::EncoderResetRequired)?;
+            let encoded = encoder.encode_packed(pixels, stride, format, pts_ms)?;
+            let codec = match encoded.codec {
+                remote_codec::hardware::HardwareCodec::H264 => VideoCodec::H264,
+                remote_codec::hardware::HardwareCodec::H265 => VideoCodec::H265,
+            };
+            let packets: Vec<OwnedVideoPacket> = encoded.packets.into_iter().map(|packet| OwnedVideoPacket {
+                data: packet.data, key: packet.key, pts: packet.pts,
+            }).collect();
+            let wire = Envelope::video_event(display, codec, &packets)?.encode(self.max_envelope_bytes)?;
             transport.send(&wire, deadline).await?;
             self.encoder = Some(encoder);
             Ok(())

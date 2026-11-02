@@ -51,3 +51,10 @@ other modes. Unlike RustDesk it does not synchronize OS modifier state, perform
 portable-service/desktop switching or generate repeats, so even supported keys
 are not a claim of complete compatibility. Its fake-backend tests are written
 but not run; real input delivery is unverified.
+
+With the `hwcodec` feature, `HardwareVideoSender` can pack H.264/H.265 RAM
+encoder output into the existing RustDesk VideoFrame oneof and send it through
+`NetworkTransport` under a view-screen session check. It discards the encoder
+after an interrupted send; the application must renegotiate/resynchronize the
+peer. This path does not implement hardware decoding, codec negotiation, secure
+peer binding, or native driver isolation, and has not been built or tested.
