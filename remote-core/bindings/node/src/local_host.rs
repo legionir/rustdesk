@@ -297,12 +297,21 @@ impl Task for ApproveTask {
         let end = Instant::now().checked_add(self.deadline).ok_or_else(|| Error::from_reason("invalid approval deadline"))?;
         let permissions = Permissions { view_screen: true, ..Default::default() };
         let mut approval = OwnerApproval::new(session.id, session.principal.clone(), Some(permissions));
-        session.host.authorize(permissions, &mut approval).map_err(js_error)?;
-        session.host.set_authorized_message_limit(POSTAUTH).map_err(js_error)?;
-        runtime()?.block_on(async {
-            session.host.send_login_success(&info, remaining(end)?).await.map_err(js_error)?;
-            session.host.send_source_keyboard_permission(false, remaining(end)?).await.map_err(js_error)
-        })?;
+        let rt = runtime()?;
+        let result = (|| -> Result<()> {
+            session.host.authorize(permissions, &mut approval).map_err(js_error)?;
+            session.host.set_authorized_message_limit(POSTAUTH).map_err(js_error)?;
+            rt.block_on(async {
+                session.host.send_login_success(&info, remaining(end)?).await.map_err(js_error)?;
+                session.host.send_source_keyboard_permission(false, remaining(end)?).await.map_err(js_error)
+            })
+        })();
+        if let Err(error) = result {
+            // Do not retain an approved-but-unannounced session on any setup
+            // failure, including an expired deadline before either send.
+            let _ = session.host.close();
+            return Err(error);
+        }
         session.approved_displays = Some(approved_displays);
         Ok(())
     }
