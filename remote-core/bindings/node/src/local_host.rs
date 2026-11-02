@@ -402,7 +402,7 @@ impl Task for HostEventTask {
         let mut output = LocalHostEvent { kind: String::new(), display: None, cursor_id: None, data: None, vp8: None, vp9: None, av1: None, h264: None, h265: None, preference: None };
         match event {
             HostEvent::Input => output.kind = "input".into(),
-            HostEvent::Heartbeat => output.kind = "heartbeat".into(),
+            HostEvent::Heartbeat | HostEvent::ProbeReply(_) => output.kind = "heartbeat".into(),
             HostEvent::VideoControl(VideoControl::RefreshAll) => output.kind = "refreshAll".into(),
             HostEvent::VideoControl(VideoControl::RefreshDisplay(index)) => { output.kind = "refreshDisplay".into(); output.display = Some(index); },
             HostEvent::VideoControl(VideoControl::FrameReceived) => output.kind = "frameReceived".into(),

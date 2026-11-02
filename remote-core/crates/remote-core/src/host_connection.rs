@@ -44,6 +44,8 @@ struct PendingLogin { claims: LoginClaims, response: Zeroizing<Vec<u8>>, decodin
 pub enum HostEvent {
     Input,
     Heartbeat,
+    /// Untrusted echo of a host-origin TestDelay probe, not proof of identity.
+    ProbeReply(remote_protocol::TestDelay),
     VideoControl(remote_protocol::video_control::VideoControl),
     /// An untrusted request to resend a previously delivered cursor shape.
     CursorShapeRequest(u64),
@@ -371,12 +373,26 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.phase = Phase::Authorized;
         Ok(true)
     }
+    /// Send a source host-origin TestDelay message. Caller owns probe
+    /// bookkeeping, cadence and validation; it is not an authenticated RTT.
+    /// Do not retry after an uncertain send. Cancellation leaves the connection
+    /// Busy and requires close/drop.
+    pub async fn send_delay_probe(&mut self, last_delay: u32, target_bitrate: u32, deadline: Duration) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Authorized || deadline.is_zero() || !self.host.permissions().view_screen { return Err(ConnectionError::InvalidState); }
+        let probe = remote_protocol::TestDelay { time: 0, from_client: false, last_delay, target_bitrate };
+        let wire = Envelope::test_delay_event(probe).encode(self.max_post_auth_bytes)?;
+        self.phase = Phase::Busy;
+        match self.transport.send(&wire, deadline).await {
+            Ok(()) => { self.phase = Phase::Authorized; Ok(()) },
+            Err(error) => { self.abort(); Err(ConnectionError::Network(error)) },
+        }
+    }
     /// Process one input or TestDelay message as in the original narrow API.
     /// Video-control events are consumed but returned as unexpected; callers
     /// that support them must use `receive_event` consistently instead.
     pub async fn receive_input(&mut self, deadline: Duration) -> Result<(), ConnectionError> {
         match self.receive_event(deadline).await? {
-            HostEvent::Input | HostEvent::Heartbeat => Ok(()),
+            HostEvent::Input | HostEvent::Heartbeat | HostEvent::ProbeReply(_) => Ok(()),
             HostEvent::VideoControl(_) | HostEvent::CursorShapeRequest(_) | HostEvent::DecodingAdvertisement { .. } => Err(ConnectionError::UnexpectedMessage),
         }
     }
@@ -403,16 +419,20 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
                 crate::tracked_modifiers::keyboard(&mut self.host, &event).map(|_| HostEvent::Input).map_err(ConnectionError::TrackedModifier),
             MessageKind::Keyboard => windows_keyboard::dispatch(&mut self.host, &event).map(|_| HostEvent::Input).map_err(ConnectionError::Keyboard),
             MessageKind::TestDelay => {
-                // The source host echoes client-origin probes unchanged. Host-
-                // origin replies need separate RTT bookkeeping, not provided here.
-                if event.test_delay()?.from_client {
+                // The source host echoes client-origin probes unchanged. A
+                // host-origin reply is returned to the caller for optional
+                // local RTT bookkeeping; all fields remain untrusted.
+                let delay = event.test_delay()?;
+                if delay.from_client {
                     self.phase = Phase::Busy;
                     if let Err(error) = self.transport.send(&raw, deadline).await {
                         self.abort(); return Err(ConnectionError::Network(error));
                     }
                     self.phase = Phase::Authorized;
+                    Ok(HostEvent::Heartbeat)
+                } else {
+                    Ok(HostEvent::ProbeReply(delay))
                 }
-                Ok(HostEvent::Heartbeat)
             },
             _ if event.video_control().is_some() && self.host.permissions().view_screen =>
                 Ok(HostEvent::VideoControl(event.video_control().ok_or(ConnectionError::UnexpectedMessage)?)),

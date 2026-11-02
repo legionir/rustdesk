@@ -118,7 +118,7 @@ impl SourceVideoQos {
     /// frame at the source's scheduling cadence to permit timeout adaptation.
     pub fn update_display(&mut self, id: u32, frame_encoded: bool) -> Result<(), QosError> {
         self.has_display(id)?;
-        self.qos.update_display_data(&Self::name(id), usize::from(frame_encoded)); Ok(())
+        self.qos.update_display_data(&Self::name(id), if frame_encoded { 1 } else { 0 }); Ok(())
     }
     pub fn recommendation(&mut self) -> Recommendation {
         Recommendation { fps: self.qos.fps(), frame_interval: self.qos.spf(), quality_ratio: self.qos.ratio(),
