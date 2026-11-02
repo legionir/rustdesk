@@ -327,6 +327,28 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         pump.start(&mut self.host)?;
         Ok(pump)
     }
+    /// Open a caller-approved bounded group of software capture streams. All
+    /// handles are opened before entering streaming state; no tasks are spawned.
+    pub fn start_multi_capture(&mut self, displays: Vec<(Display, i32, EncoderConfig)>, limit: usize) -> Result<crate::capture_pump::MultiCapture, ConnectionError> {
+        if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
+        Ok(crate::capture_pump::MultiCapture::start(&mut self.host, displays, limit)?)
+    }
+    /// Send one member's frame on the ordered connection. The caller chooses
+    /// scheduling and must not drive individual capture pumps at the same time.
+    pub async fn send_multi_capture(&mut self, group: &mut crate::capture_pump::MultiCapture, display: i32,
+        capture_wait: Duration, send_wait: Duration, pts_ms: i64) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
+        self.phase = Phase::Busy;
+        match group.send_network(&mut self.host, &mut self.transport, display, capture_wait, send_wait, pts_ms).await {
+            Ok(()) => { self.phase = Phase::Authorized; Ok(()) },
+            Err(CapturePumpError::Video(crate::video::VideoError::Network(error))) => { self.abort(); Err(ConnectionError::Network(error)) },
+            Err(error) => { self.phase = Phase::Authorized; Err(ConnectionError::Capture(error)) },
+        }
+    }
+    pub fn stop_multi_capture(&mut self, group: &mut crate::capture_pump::MultiCapture) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
+        group.stop(&mut self.host)?; Ok(())
+    }
     /// Open an opt-in Windows GPU capture pump after view authorization.
     /// Codec support and real display consent must be established separately.
     #[cfg(all(target_os = "windows", feature = "vram"))]

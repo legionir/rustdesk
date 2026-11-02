@@ -151,3 +151,62 @@ impl CapturePump {
         Ok(())
     }
 }
+
+/// Caller-driven group of independent software capturers for one session.
+///
+/// Group creation opens all displays before marking streaming, so an open
+/// failure drops already-opened members. This is not an automatic scheduler:
+/// the application must choose fair pacing, handle `WouldBlock`, drop/recreate
+/// after topology changes, and coordinate client decoder and refresh state.
+/// Dropping without `stop` releases native resources but leaves the session's
+/// streaming state unchanged. Do not mix with separately managed pumps.
+pub struct MultiCapture {
+    session_id: SessionId,
+    pumps: std::collections::BTreeMap<i32, CapturePump>,
+    stopped: bool,
+}
+impl MultiCapture {
+    pub const MAX_STREAMS: usize = 8;
+    /// Maximum sum of configured frame areas; not a total native-memory cap.
+    pub const MAX_PIXELS: u64 = 32 * 1024 * 1024;
+    /// `displays` are actual enumerated handles, with caller-supplied source
+    /// wire indices and previously negotiated encoder configurations. The caller
+    /// must ensure every selected display is approved. No global memory/CPU/GPU
+    /// limit or source subscription semantics are implied by the local caps.
+    pub fn start<B: InputBackend>(host: &mut HostInputSession<B>, displays: Vec<(Display, i32, EncoderConfig)>, limit: usize) -> Result<Self, CapturePumpError> {
+        if host.state() != SessionState::Connected || !host.permissions().view_screen { return Err(CapturePumpError::NotAuthorized); }
+        if displays.is_empty() || displays.len() > Self::MAX_STREAMS { return Err(CapturePumpError::InvalidFrame("invalid capture group size")); }
+        let mut indices = std::collections::BTreeSet::new();
+        let mut pixels = 0u64;
+        for (_, index, config) in &displays {
+            if *index < 0 || !indices.insert(*index) { return Err(CapturePumpError::InvalidFrame("invalid or duplicate display index")); }
+            pixels = pixels.checked_add(u64::from(config.width) * u64::from(config.height)).ok_or(CapturePumpError::InvalidFrame("pixel budget overflow"))?;
+        }
+        if pixels > Self::MAX_PIXELS { return Err(CapturePumpError::InvalidFrame("capture group pixel budget exceeded")); }
+        let mut pumps = std::collections::BTreeMap::new();
+        for (display, index, config) in displays {
+            pumps.insert(index, CapturePump::open(host, display, index, config, limit)?);
+        }
+        host.start_streaming()?;
+        Ok(Self { session_id: host.id(), pumps, stopped: false })
+    }
+    pub fn displays(&self) -> impl Iterator<Item = i32> + '_ { self.pumps.keys().copied() }
+    /// Drive one stream. Network send failure/cancellation can make delivery
+    /// indeterminate; connection closure and stream resynchronization are the
+    /// caller's responsibility. Native work can block the executor.
+    pub async fn send_network<B: InputBackend>(&mut self, host: &mut HostInputSession<B>, transport: &mut dyn NetworkTransport,
+        display: i32, capture_wait: Duration, send_wait: Duration, pts_ms: i64) -> Result<(), CapturePumpError> {
+        if self.stopped || host.id() != self.session_id { return Err(CapturePumpError::NotAuthorized); }
+        let pump = self.pumps.get_mut(&display).ok_or(CapturePumpError::InvalidFrame("display not in capture group"))?;
+        pump.send_network(host, transport, capture_wait, send_wait, pts_ms).await
+    }
+    /// Stop the shared streaming state once. Dropping the group afterwards
+    /// releases all capture handles; this does not close the connection.
+    pub fn stop<B: InputBackend>(&mut self, host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
+        if self.stopped || host.id() != self.session_id { return Err(CapturePumpError::NotAuthorized); }
+        host.stop_streaming()?;
+        self.stopped = true;
+        for pump in self.pumps.values_mut() { pump.stopped = true; }
+        Ok(())
+    }
+}
