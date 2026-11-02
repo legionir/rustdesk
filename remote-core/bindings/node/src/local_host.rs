@@ -8,7 +8,7 @@ use crate::{js_error, viewer::{remaining, runtime, wait}};
 use hbb_common::sodiumoxide::{self, crypto::sign};
 use napi::{bindgen_prelude::{AsyncTask, Buffer}, Env, Error, Result, Task};
 use napi_derive::napi;
-use remote_core::{admitted_host, host_connection::{HostConnection, LoginClaims}};
+use remote_core::{admitted_host, host_connection::{HostConnection, HostEvent, LoginClaims}};
 use remote_input::{InputBackend, MouseButton, VirtualKey};
 use remote_protocol::desktop::{DisplayInfo, PeerInfo};
 use remote_rustdesk_websocket::{direct_tcp::{DirectTcp, DirectTcpListener, DirectTcpOptIn}, source_crypto::EncryptedTransport};
@@ -93,7 +93,7 @@ impl Task for ListenTask {
         let listener = runtime()?.block_on(DirectTcpListener::bind("127.0.0.1:0".parse().map_err(js_error)?, PREAUTH, self.deadline, DirectTcpOptIn::acknowledge_plaintext_transport())).map_err(js_error)?;
         let address = listener.local_addr().map_err(js_error)?.to_string();
         let admission = AdmissionController::new(AdmissionLimits { max_total: 1, max_per_address: 1, login_grace: Duration::from_secs(180) }).map_err(js_error)?;
-        let mut pin = [0; 32]; pin.copy_from_slice(public.as_ref());
+        let mut pin = [0; 32]; pin.copy_from_slice(&public.0);
         Ok((ListenerData { listener, host_id: self.host_id.clone(), secret, password: Zeroizing::new(std::mem::take(&mut *self.password)), admission }, address, pin))
     }
     fn resolve(&mut self, _: Env, output: Self::Output) -> Result<LocalHost> {
@@ -215,6 +215,15 @@ impl LocalHostSession {
         let busy = SessionBusy::acquire(&self.state)?;
         Ok(AsyncTask::new(SendFrameTask { state: self.state.clone(), _busy: busy, display_index, capture_wait: Duration::from_millis(capture_timeout_ms.into()), send_wait }))
     }
+    /// Receive one source control/heartbeat message. This serial API cannot
+    /// receive concurrently with frame sends. Timeouts close the connection.
+    /// Peer requests are untrusted and are not acted on automatically.
+    #[napi]
+    pub fn receive_event(&self, timeout_ms: u32) -> Result<AsyncTask<HostEventTask>> {
+        let deadline = wait(timeout_ms)?;
+        let busy = SessionBusy::acquire(&self.state)?;
+        Ok(AsyncTask::new(HostEventTask { state: self.state.clone(), _busy: busy, deadline }))
+    }
     /// Close/reject the session. Must not overlap another session operation.
     #[napi]
     pub fn close(&self) -> Result<()> {
@@ -286,4 +295,42 @@ impl Task for SendFrameTask {
         Ok(())
     }
     fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
+}
+
+/// Untrusted host-side event. Capabilities are serialized as an isolated
+/// existing source option, with login proof and other options removed.
+#[napi(object)]
+pub struct LocalHostEvent {
+    pub kind: String,
+    pub display: Option<u32>,
+    pub data: Option<Buffer>,
+    pub vp8: Option<i32>, pub vp9: Option<i32>, pub av1: Option<i32>,
+    pub h264: Option<i32>, pub h265: Option<i32>, pub preference: Option<i32>,
+}
+pub struct HostEventTask { state: Arc<SessionState>, _busy: SessionBusy, deadline: Duration }
+impl Task for HostEventTask {
+    type Output = HostEvent;
+    type JsValue = LocalHostEvent;
+    fn compute(&mut self) -> Result<HostEvent> {
+        let mut lock = self.state.data.lock().map_err(|_| Error::from_reason("host session state poisoned"))?;
+        let session = lock.as_mut().ok_or_else(|| Error::from_reason("host session closed"))?;
+        runtime()?.block_on(session.host.receive_event(self.deadline)).map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, event: HostEvent) -> Result<LocalHostEvent> {
+        use remote_protocol::video_control::VideoControl;
+        let mut output = LocalHostEvent { kind: String::new(), display: None, data: None, vp8: None, vp9: None, av1: None, h264: None, h265: None, preference: None };
+        match event {
+            HostEvent::Input => output.kind = "input".into(),
+            HostEvent::Heartbeat => output.kind = "heartbeat".into(),
+            HostEvent::VideoControl(VideoControl::RefreshAll) => output.kind = "refreshAll".into(),
+            HostEvent::VideoControl(VideoControl::RefreshDisplay(index)) => { output.kind = "refreshDisplay".into(); output.display = Some(index); },
+            HostEvent::VideoControl(VideoControl::FrameReceived) => output.kind = "frameReceived".into(),
+            HostEvent::DecodingAdvertisement { values, envelope } => {
+                output.kind = "decodingAdvertisement".into(); output.data = Some(envelope.into_vec().into());
+                output.vp8 = Some(values.vp8); output.vp9 = Some(values.vp9); output.av1 = Some(values.av1);
+                output.h264 = Some(values.h264); output.h265 = Some(values.h265); output.preference = Some(values.preference);
+            },
+        }
+        Ok(output)
+    }
 }
