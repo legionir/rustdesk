@@ -690,3 +690,29 @@ pub mod video {
         }
     }
 }
+
+/// Read the Windows current-desktop cursor only for an authorized view session.
+/// This checks session state but does not bind or authenticate a transport.
+/// The result includes no cursor shape and cannot implement source service,
+/// secure-desktop, cross-session or portable-service cursor behavior.
+#[cfg(target_os = "windows")]
+pub fn windows_cursor_snapshot<B: InputBackend>(host: &HostInputSession<B>) -> Result<remote_capture::windows_cursor::CursorSnapshot, cursor_snapshot::Error> {
+    if !matches!(host.state(), SessionState::Connected | SessionState::Streaming) || !host.permissions().view_screen {
+        return Err(cursor_snapshot::Error::NotAuthorized);
+    }
+    remote_capture::windows_cursor::snapshot().map_err(cursor_snapshot::Error::Capture)
+}
+
+/// Errors sampling a session-bound Windows cursor.
+#[cfg(target_os = "windows")]
+pub mod cursor_snapshot {
+    /// A permission or native sampling failure.
+    #[derive(Debug)]
+    pub enum Error { NotAuthorized, Capture(std::io::Error) }
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self { Self::NotAuthorized => f.write_str("screen view is not authorized"), Self::Capture(e) => write!(f, "cursor snapshot: {e}") }
+        }
+    }
+    impl std::error::Error for Error {}
+}

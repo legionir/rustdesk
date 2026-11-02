@@ -168,3 +168,39 @@ mod tests {
         }
     }
 }
+
+/// Native cursor visibility and coordinates for the current Windows desktop.
+/// This is not the RustDesk portable-service implementation and does not capture
+/// a cursor shape; service/UAC/secure-desktop and multi-session behavior differ.
+#[cfg(target_os = "windows")]
+pub mod windows_cursor {
+    use std::{io, mem};
+    use winapi::{shared::minwindef::FALSE, um::winuser::{GetCursorInfo, CURSORINFO, CURSOR_SHOWING}};
+
+    /// One snapshot. The handle-derived ID is process/desktop specific, may be
+    /// reused and must not be treated as a durable cursor-shape identity.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct CursorSnapshot {
+        pub visible: bool,
+        pub x: i32,
+        pub y: i32,
+        pub handle_id: u64,
+    }
+
+    /// Sample the current desktop cursor. No authentication, authorization or
+    /// shape extraction is performed here; host callers must enforce consent.
+    pub fn snapshot() -> io::Result<CursorSnapshot> {
+        unsafe {
+            // CURSORINFO is a Win32 C POD and requires cbSize before the call.
+            let mut info: CURSORINFO = mem::zeroed();
+            info.cbSize = mem::size_of::<CURSORINFO>() as u32;
+            if GetCursorInfo(&mut info) == FALSE { return Err(io::Error::last_os_error()); }
+            Ok(CursorSnapshot {
+                visible: info.flags & CURSOR_SHOWING != 0,
+                x: info.ptScreenPos.x,
+                y: info.ptScreenPos.y,
+                handle_id: info.hCursor as usize as u64,
+            })
+        }
+    }
+}

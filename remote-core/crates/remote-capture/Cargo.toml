@@ -15,3 +15,6 @@ drm = ["wayland", "scrap/drm"]
 hwcodec = ["scrap/hwcodec"]
 vram = ["hwcodec", "scrap/vram"]
 mediacodec = ["scrap/mediacodec"]
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }

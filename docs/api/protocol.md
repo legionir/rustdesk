@@ -81,3 +81,10 @@ cache. Cursor IDs are 64-bit; Node/JS callers must use strings to avoid loss of
 precision. The cache excludes allocator/application-held memory and does not
 draw a cursor or implement source content-based deduplication. Neither its
 wire compatibility nor adversarial decompression behavior has been tested.
+
+On Windows, `remote-capture::windows_cursor::snapshot` exposes only local
+current-desktop cursor visibility, coordinates and a transient handle-derived
+ID, and `remote-core::windows_cursor_snapshot` adds a session view check. This
+is not RustDesk's portable-service cursor path, does not obtain a shape, and is
+not verified on an interactive desktop, UAC or service session. A handle ID can
+be reused and must not be assumed to be the source's content-derived shape ID.
