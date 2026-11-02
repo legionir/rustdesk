@@ -63,7 +63,8 @@ and secure bitstream handling remain open.
 
 `windows_mouse::dispatch` routes absolute and bounded relative motion, five
 mouse buttons and ordinary wheel events through the session guard. Modifier
-lists, trackpad, touch and other event forms are explicitly unsupported. A
+lists, touch and other event forms were explicitly unsupported at that increment;
+an unverified Windows trackpad-wheel path was added later. A
 separate `windows_keyboard::dispatch` covers only unmodified legacy control
 keys; it does not translate text, scan codes or modifiers, sync OS state or
 support Windows portable-service desktop switching. The gate for mouse is an

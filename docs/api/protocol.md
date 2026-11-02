@@ -38,7 +38,7 @@ messages through the session guard: absolute/relative movement, five buttons,
 and ordinary Windows wheel events. Its constants and Windows wheel signs/units
 come from `src/common.rs::input` and `src/server/input_service.rs`; relative
 deltas are clamped to ±10,000. It rejects modifier-bearing mouse events,
-trackpad and unknown event forms; their protobuf remains unchanged. It does not
+unknown event forms; their protobuf remains unchanged. It does not
 implement keyboard/touch dispatch, display mapping, input arbitration, transport
 binding or a trusted consent flow. Its distinct mouse permission differs from
 upstream's shared keyboard gate and must be reviewed. Tests use a fake backend
@@ -125,3 +125,7 @@ loopback host grants only view, so it does not implement switching. Source
 subscription precedence is add, then sub, otherwise set; empty set can stop all
 subscriptions. Always validate indices against a current authorized snapshot;
 retaining the original envelope does not make peer data trustworthy.
+
+Windows trackpad wheel events use the source's unscaled `(-x, y)` units;
+ordinary wheel events use `(-x * 120, y * 120)`. Overflow is rejected instead
+of using overflowing arithmetic. This backend path is not validated on Windows.

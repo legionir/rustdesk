@@ -40,7 +40,9 @@ fn authorizes_and_maps_windows_mouse_subset() {
     dispatch(&mut host, &event((8 << 3) | 2, 0, 0)).unwrap();
     dispatch(&mut host, &event(3, 2, -3)).unwrap();
     assert_eq!(&*events.borrow(), &["abs:-40:50", "rel:10000:-10000", "down:Back", "up:Back", "scroll:-240:-360"]);
-    assert!(matches!(dispatch(&mut host, &event(4, 0, 0)), Err(DispatchError::Unsupported(_))));
+    dispatch(&mut host, &event(4, 15, -25)).unwrap();
+    assert_eq!(events.borrow().last().unwrap(), "scroll:-15:-25");
+    assert!(matches!(dispatch(&mut host, &event(4, i32::MIN, 0)), Err(DispatchError::InvalidWheelDelta)));
     assert!(matches!(dispatch(&mut host, &event(3, i32::MIN, 0)), Err(DispatchError::InvalidWheelDelta)));
 }
 #[test]

@@ -272,7 +272,7 @@ impl<B: InputBackend> HostInputSession<B> {
 
 /// Windows mouse input dispatcher for the supported RustDesk event subset.
 ///
-/// This deliberately refuses modifier-bearing events and trackpad messages;
+/// This deliberately refuses modifier-bearing events;
 /// it does not silently reinterpret them. Keyboard translation, touch, consent,
 /// session-to-transport binding and inter-session input arbitration are not
 /// provided. The caller must protect this API from untrusted peers and ensure
@@ -314,8 +314,8 @@ pub mod windows_mouse {
     /// Absolute positions use virtual-desktop coordinates; selecting/mapping a
     /// monitor is the caller's responsibility. Relative deltas are clamped to
     /// ±10,000 as in `src/server/input_service.rs`. Ordinary wheel deltas use
-    /// `(-x * 120, y * 120)` Windows units. Modifiers and trackpad events are
-    /// explicitly rejected until their source behavior is extracted. The session
+    /// `(-x * 120, y * 120)` Windows units; source trackpad events use unscaled
+    /// `(-x, y)` Windows wheel units. Modifiers are explicitly rejected. The session
     /// guard checks `control_mouse`, whose policy differs from upstream's
     /// shared `peer_keyboard_enabled()` gate and needs security review.
     pub fn dispatch<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
@@ -340,7 +340,10 @@ pub mod windows_mouse {
                 let y = event.y.checked_mul(120).ok_or(DispatchError::InvalidWheelDelta)?;
                 host.scroll(x, y)?;
             }
-            4 => return Err(DispatchError::Unsupported("trackpad")),
+            4 => {
+                let x = event.x.checked_neg().ok_or(DispatchError::InvalidWheelDelta)?;
+                host.scroll(x, event.y)?;
+            },
             5 => host.move_relative(event.x.clamp(-10_000, 10_000), event.y.clamp(-10_000, 10_000))?,
             _ => return Err(DispatchError::Unsupported("unknown event type")),
         }

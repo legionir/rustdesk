@@ -366,7 +366,12 @@ pub mod windows {
         fn move_relative(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_move_relative(x, y); Ok(()) }
         fn mouse_down(&mut self, b: MouseButton) -> io::Result<()> { self.inner.mouse_down(button(b)).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn mouse_up(&mut self, b: MouseButton) -> io::Result<()> { self.inner.mouse_up(button(b)); Ok(()) }
-        fn scroll(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_scroll_x(x); self.inner.mouse_scroll_y(y); Ok(()) }
+        fn scroll(&mut self, x: i32, y: i32) -> io::Result<()> {
+            // Source input_service emits vertical first and skips zero deltas.
+            if y != 0 { self.inner.mouse_scroll_y(y); }
+            if x != 0 { self.inner.mouse_scroll_x(x); }
+            Ok(())
+        }
         fn key_down(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_down(Key::Raw(key.code())).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn key_up(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_up(Key::Raw(key.code())); Ok(()) }
         fn scan_down(&mut self, code: ScanCode) -> io::Result<()> {
