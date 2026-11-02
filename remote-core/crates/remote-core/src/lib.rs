@@ -13,6 +13,8 @@ pub mod capture_pump;
 pub mod host_connection;
 /// Experimental caller-driven viewer transport and protocol demultiplexing.
 pub mod viewer_connection;
+/// Opt-in local tracked-modifier input subset.
+pub mod tracked_modifiers;
 
 use std::{error::Error, fmt};
 use remote_input::{InputBackend, InputController, InputError, MouseButton, VirtualKey};
@@ -358,7 +360,7 @@ pub mod windows_keyboard {
     // ControlKey numeric values are from message.proto. Virtual-key values match
     // src/server/input_service.rs KEY_MAP and libs/enigo/src/win/keycodes.rs.
     // Modifiers, lock keys and system actions are deliberately excluded.
-    fn plain_control_vk(value: i32) -> Option<u16> {
+    pub(crate) fn plain_control_vk(value: i32) -> Option<u16> {
         Some(match value {
             2 => 0x08, 5 => 0x2e, 6 => 0x28, 7 => 0x23, 8 => 0x1b,
             9 => 0x70, 10 => 0x79, 11 => 0x7a, 12 => 0x7b,

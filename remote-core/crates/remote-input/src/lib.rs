@@ -169,6 +169,9 @@ impl<B: InputBackend> InputController<B> {
         self.mouse_down(button)?;
         self.mouse_up(button)
     }
+    /// Whether this controller tracks this key as held. This is not a query of
+    /// the real OS keyboard or keys held by other processes or the human user.
+    pub fn is_key_held(&self, key: VirtualKey) -> bool { self.keys.contains(&key) }
     /// Press a virtual key. Repeated downs are ignored, so key-repeat is not generated.
     pub fn key_down(&mut self, key: VirtualKey) -> Result<(), InputError> {
         self.allowed(self.permissions.keyboard)?;
