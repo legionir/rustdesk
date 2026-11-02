@@ -303,8 +303,8 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         pump.stop(&mut self.host)?; Ok(())
     }
     /// Sample and send one visible current-desktop Windows cursor shape and
-    /// position over this connection. No caching/deduplication is attempted;
-    /// both messages are sent each call. A hidden cursor returns false without
+    /// position over this connection. Shapes are cached for explicit resend,
+    /// but both messages are sent on each sample; there is no deduplication. A hidden cursor returns false without
     /// sending a hide event, since that behavior is not implemented here.
     /// Cursor sampling can block and is not the source portable-service path.
     /// If the handle changes during sampling, the sample is discarded. Handle
@@ -331,14 +331,14 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         let wire = Envelope::cursor_shape_event(&shape).map_err(ConnectionError::Cursor)?.encode(self.max_post_auth_bytes)?;
         let position = Envelope::cursor_position_event(remote_protocol::cursor::CursorPosition { x: position.x, y: position.y })
             .encode(self.max_post_auth_bytes)?;
-        self.phase = Phase::Busy;
-        if let Err(error) = self.transport.send(&wire, deadline).await {
-            self.abort(); return Err(ConnectionError::Network(error));
-        }
         if self.cursor_cache.is_none() {
             self.cursor_cache = Some(remote_protocol::cursor::CursorCache::new(128, remote_protocol::cursor::MAX_CACHE_BYTES).map_err(ConnectionError::Cursor)?);
         }
         if let Some(cache) = self.cursor_cache.as_mut() { cache.insert(shape).map_err(ConnectionError::Cursor)?; }
+        self.phase = Phase::Busy;
+        if let Err(error) = self.transport.send(&wire, deadline).await {
+            self.abort(); return Err(ConnectionError::Network(error));
+        }
         if let Err(error) = self.transport.send(&position, deadline).await {
             self.abort(); return Err(ConnectionError::Network(error));
         }

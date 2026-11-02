@@ -103,8 +103,8 @@ export class LocalHost {
   close(): void;
 }
 export interface LocalHostEvent {
-  kind: 'input' | 'heartbeat' | 'refreshAll' | 'refreshDisplay' | 'frameReceived' | 'decodingAdvertisement';
-  display?: number; data?: Buffer; vp8?: number; vp9?: number; av1?: number;
+  kind: 'input' | 'heartbeat' | 'refreshAll' | 'refreshDisplay' | 'frameReceived' | 'cursorShapeRequest' | 'decodingAdvertisement';
+  display?: number; cursorId?: string; data?: Buffer; vp8?: number; vp9?: number; av1?: number;
   h264?: number; h265?: number; preference?: number;
 }
 export class LocalHostSession {

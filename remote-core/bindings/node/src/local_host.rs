@@ -352,7 +352,7 @@ impl Task for SendFrameTask {
 #[napi(object)]
 pub struct LocalHostEvent {
     pub kind: String,
-    pub display: Option<u32>,
+    pub display: Option<u32>, pub cursor_id: Option<String>,
     pub data: Option<Buffer>,
     pub vp8: Option<i32>, pub vp9: Option<i32>, pub av1: Option<i32>,
     pub h264: Option<i32>, pub h265: Option<i32>, pub preference: Option<i32>,
@@ -368,13 +368,14 @@ impl Task for HostEventTask {
     }
     fn resolve(&mut self, _: Env, event: HostEvent) -> Result<LocalHostEvent> {
         use remote_protocol::video_control::VideoControl;
-        let mut output = LocalHostEvent { kind: String::new(), display: None, data: None, vp8: None, vp9: None, av1: None, h264: None, h265: None, preference: None };
+        let mut output = LocalHostEvent { kind: String::new(), display: None, cursor_id: None, data: None, vp8: None, vp9: None, av1: None, h264: None, h265: None, preference: None };
         match event {
             HostEvent::Input => output.kind = "input".into(),
             HostEvent::Heartbeat => output.kind = "heartbeat".into(),
             HostEvent::VideoControl(VideoControl::RefreshAll) => output.kind = "refreshAll".into(),
             HostEvent::VideoControl(VideoControl::RefreshDisplay(index)) => { output.kind = "refreshDisplay".into(); output.display = Some(index); },
             HostEvent::VideoControl(VideoControl::FrameReceived) => output.kind = "frameReceived".into(),
+            HostEvent::CursorShapeRequest(id) => { output.kind = "cursorShapeRequest".into(); output.cursor_id = Some(id.to_string()); },
             HostEvent::DecodingAdvertisement { values, envelope } => {
                 output.kind = "decodingAdvertisement".into(); output.data = Some(envelope.into_vec().into());
                 output.vp8 = Some(values.vp8); output.vp9 = Some(values.vp9); output.av1 = Some(values.av1);
