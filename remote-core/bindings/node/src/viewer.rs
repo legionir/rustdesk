@@ -466,6 +466,7 @@ impl Task for ReceiveTask {
             ViewerEvent::CursorPosition(pos) => { msg.kind = "cursorPosition".into(); msg.x = Some(pos.x); msg.y = Some(pos.y); },
             ViewerEvent::TestDelay(_) => { msg.kind = "testDelay".into(); },
             ViewerEvent::PeerInfo(info) => { msg.kind = "peerInfo".into(); msg.peer = Some(to_js_peer(&info)); },
+            ViewerEvent::DisplayChanged { value, envelope } => { msg.kind = "displayChanged".into(); msg.display = Some(value.display as i32); msg.x = Some(value.x); msg.y = Some(value.y); msg.width = Some(value.width); msg.height = Some(value.height); msg.data = Some(envelope.into_vec().into()); },
             ViewerEvent::Permission(notice) => { msg.kind = "permission".into(); msg.permission = Some(notice.permission); msg.enabled = Some(notice.enabled); },
             ViewerEvent::Other(raw) => { msg.kind = "other".into(); msg.data = Some(raw.into_vec().into()); },
         }

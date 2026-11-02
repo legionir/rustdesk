@@ -47,6 +47,10 @@ pub enum HostEvent {
     /// Untrusted echo of a host-origin TestDelay probe, not proof of identity.
     ProbeReply(remote_protocol::TestDelay),
     VideoControl(remote_protocol::video_control::VideoControl),
+    /// Untrusted display-switch request and original wire envelope.
+    DisplaySwitchRequest { value: remote_protocol::display_control::DisplaySwitch, envelope: Box<[u8]> },
+    /// Untrusted multi-display subscription request and original envelope.
+    CaptureDisplaysRequest { value: remote_protocol::display_control::CaptureDisplays, envelope: Box<[u8]> },
     /// An untrusted request to resend a previously delivered cursor shape.
     CursorShapeRequest(u64),
     /// Untrusted source SupportedDecoding only, serialized as a standalone
@@ -81,6 +85,7 @@ pub enum ConnectionError {
     Arbitration(crate::input_arbiter::ArbitrationError),
     /// Desktop metadata or login response validation failed.
     Desktop(remote_protocol::desktop::DesktopError),
+    DisplayControl(remote_protocol::display_control::DisplayControlError),
     /// Local Windows cursor sampling failed.
     CursorCapture(std::io::Error),
 }
@@ -103,6 +108,7 @@ impl fmt::Display for ConnectionError {
             Self::TrackedModifier(e) => write!(f, "tracked modifier dispatch: {e}"),
             Self::Arbitration(e) => write!(f, "input arbitration: {e}"),
             Self::Desktop(e) => write!(f, "desktop metadata: {e}"),
+            Self::DisplayControl(e) => write!(f, "display control: {e}"),
             Self::CursorCapture(e) => write!(f, "cursor capture: {e}"),
         }
     }
@@ -435,6 +441,20 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.phase = Phase::Authorized;
         Ok(true)
     }
+    /// Send a source display-change notice on this same ordered stream. Caller
+    /// must supply current authorized metadata and coordinate capture/decoder
+    /// recreation; this method never changes an OS display or resolution.
+    pub async fn send_display_change(&mut self, value: &remote_protocol::display_control::DisplaySwitch, deadline: Duration) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Authorized || deadline.is_zero() || !self.host.permissions().view_screen || value.width <= 0 || value.height <= 0 {
+            return Err(ConnectionError::InvalidState);
+        }
+        let wire = Envelope::display_switch_event(value).map_err(ConnectionError::DisplayControl)?.encode(self.max_post_auth_bytes)?;
+        self.phase = Phase::Busy;
+        match self.transport.send(&wire, deadline).await {
+            Ok(()) => { self.phase = Phase::Authorized; Ok(()) },
+            Err(error) => { self.abort(); Err(ConnectionError::Network(error)) },
+        }
+    }
     /// Send a source host-origin TestDelay message. Caller owns probe
     /// bookkeeping, cadence and validation; it is not an authenticated RTT.
     /// Do not retry after an uncertain send. Cancellation leaves the connection
@@ -455,7 +475,7 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
     pub async fn receive_input(&mut self, deadline: Duration) -> Result<(), ConnectionError> {
         match self.receive_event(deadline).await? {
             HostEvent::Input | HostEvent::Heartbeat | HostEvent::ProbeReply(_) => Ok(()),
-            HostEvent::VideoControl(_) | HostEvent::CursorShapeRequest(_) | HostEvent::DecodingAdvertisement { .. } => Err(ConnectionError::UnexpectedMessage),
+            HostEvent::VideoControl(_) | HostEvent::DisplaySwitchRequest { .. } | HostEvent::CaptureDisplaysRequest { .. } | HostEvent::CursorShapeRequest(_) | HostEvent::DecodingAdvertisement { .. } => Err(ConnectionError::UnexpectedMessage),
         }
     }
     /// Receive one authorized input, heartbeat, or video-control request.
@@ -497,6 +517,14 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
                 } else {
                     Ok(HostEvent::ProbeReply(delay))
                 }
+            },
+            MessageKind::Misc if event.display_switch().is_ok() && self.host.permissions().view_screen && self.host.permissions().change_display => {
+                let value = event.display_switch().map_err(ConnectionError::DisplayControl)?;
+                Ok(HostEvent::DisplaySwitchRequest { value, envelope: raw })
+            },
+            MessageKind::Misc if event.capture_displays().is_ok() && self.host.permissions().view_screen && self.host.permissions().change_display => {
+                let value = event.capture_displays().map_err(ConnectionError::DisplayControl)?;
+                Ok(HostEvent::CaptureDisplaysRequest { value, envelope: raw })
             },
             _ if event.video_control().is_some() && self.host.permissions().view_screen =>
                 Ok(HostEvent::VideoControl(event.video_control().ok_or(ConnectionError::UnexpectedMessage)?)),

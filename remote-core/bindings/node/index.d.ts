@@ -58,7 +58,7 @@ export interface ViewerPeerInfo {
   currentDisplay: number; displays: ViewerDisplayInfo[];
 }
 export interface ViewerMessage {
-  kind: 'video' | 'cursorShape' | 'cursorId' | 'cursorPosition' | 'testDelay' | 'peerInfo' | 'permission' | 'other';
+  kind: 'video' | 'cursorShape' | 'cursorId' | 'cursorPosition' | 'testDelay' | 'peerInfo' | 'displayChanged' | 'permission' | 'other';
   data?: Buffer; display?: number; codec?: string; cursorId?: string;
   x?: number; y?: number; hotx?: number; hoty?: number; width?: number; height?: number;
   peer?: ViewerPeerInfo; permission?: number; enabled?: boolean;
@@ -108,7 +108,7 @@ export class LocalHost {
   close(): void;
 }
 export interface LocalHostEvent {
-  kind: 'input' | 'heartbeat' | 'refreshAll' | 'refreshDisplay' | 'frameReceived' | 'cursorShapeRequest' | 'decodingAdvertisement';
+  kind: 'input' | 'heartbeat' | 'refreshAll' | 'refreshDisplay' | 'frameReceived' | 'displaySwitch' | 'captureDisplays' | 'cursorShapeRequest' | 'decodingAdvertisement';
   display?: number; cursorId?: string; data?: Buffer; vp8?: number; vp9?: number; av1?: number;
   h264?: number; h265?: number; preference?: number;
 }

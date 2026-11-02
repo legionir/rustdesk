@@ -34,6 +34,7 @@ pub enum ViewerError {
     Protocol(ProtocolError),
     Security(SecurityError),
     Desktop(DesktopError),
+    DisplayControl(remote_protocol::display_control::DisplayControlError),
     Cursor(CursorError),
     Network(NetworkTransportError),
 }
@@ -47,6 +48,7 @@ impl fmt::Display for ViewerError {
             Self::Protocol(e) => write!(f, "protocol: {e}"),
             Self::Security(e) => write!(f, "password challenge: {e}"),
             Self::Desktop(e) => write!(f, "desktop metadata: {e}"),
+            Self::DisplayControl(e) => write!(f, "display control: {e}"),
             Self::Cursor(e) => write!(f, "cursor: {e}"),
             Self::Network(e) => write!(f, "network: {e}"),
         }
@@ -70,6 +72,8 @@ pub enum ViewerEvent {
     /// A source heartbeat; from-server probes are echoed before returning.
     TestDelay(TestDelay),
     PeerInfo(PeerInfo),
+    /// Untrusted source display announcement, including the original envelope.
+    DisplayChanged { value: remote_protocol::display_control::DisplaySwitch, envelope: Box<[u8]> },
     /// Untrusted source permission announcement; not a local authorization grant.
     Permission(remote_protocol::permissions::PermissionNotice),
     /// Unknown/non-adapted message. The caller may decode it separately.
@@ -152,6 +156,19 @@ impl<T: NetworkTransport> ViewerConnection<T> {
             Err(e) => { self.abort(); Err(ViewerError::Network(e)) },
         }
     }
+    /// Send an existing bounded source display-switch/subscription request.
+    /// The host must authorize, validate current displays and decide whether to
+    /// act. A nonzero requested resolution may change OS settings at a peer.
+    pub async fn send_display_control(&mut self, event: &Envelope, deadline: Duration) -> Result<(), ViewerError> {
+        if self.phase != Phase::Connected || deadline.is_zero() { return Err(ViewerError::InvalidState); }
+        if event.display_switch().is_err() && event.capture_displays().is_err() { return Err(ViewerError::UnexpectedMessage); }
+        let wire = event.encode(self.max_bytes)?;
+        self.phase = Phase::Busy;
+        match self.transport.send(&wire, deadline).await {
+            Ok(()) => { self.phase = Phase::Connected; Ok(()) },
+            Err(error) => { self.abort(); Err(ViewerError::Network(error)) },
+        }
+    }
     /// Send one existing source video refresh/received notification. This does
     /// not provide codec recovery, flow control or prove the host acted on it.
     /// A peer supplied display index must be validated by the host. Like input,
@@ -219,10 +236,14 @@ impl<T: NetworkTransport> ViewerConnection<T> {
                 if !delay.from_client { self.transport.send(&raw, deadline).await?; }
                 Ok(ViewerEvent::TestDelay(delay))
             },
-            MessageKind::Misc => match envelope.permission_notice() {
-                Ok(notice) => Ok(ViewerEvent::Permission(notice)),
-                Err(ProtocolError::UnexpectedMessage) => Ok(ViewerEvent::Other(raw)),
-                Err(error) => Err(ViewerError::Protocol(error)),
+            MessageKind::Misc => match envelope.display_switch() {
+                Ok(value) => Ok(ViewerEvent::DisplayChanged { value, envelope: raw }),
+                Err(remote_protocol::display_control::DisplayControlError::Invalid) => Err(ViewerError::DisplayControl(remote_protocol::display_control::DisplayControlError::Invalid)),
+                Err(remote_protocol::display_control::DisplayControlError::Unexpected) => match envelope.permission_notice() {
+                    Ok(notice) => Ok(ViewerEvent::Permission(notice)),
+                    Err(ProtocolError::UnexpectedMessage) => Ok(ViewerEvent::Other(raw)),
+                    Err(error) => Err(ViewerError::Protocol(error)),
+                },
             },
             MessageKind::Other => match envelope.desktop_peer_info() {
                 Ok(info) => Ok(ViewerEvent::PeerInfo(info)),

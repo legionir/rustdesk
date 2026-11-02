@@ -486,6 +486,8 @@ impl Task for HostEventTask {
         match event {
             HostEvent::Input => output.kind = "input".into(),
             HostEvent::Heartbeat | HostEvent::ProbeReply(_) => output.kind = "heartbeat".into(),
+            HostEvent::DisplaySwitchRequest { value, envelope } => { output.kind = "displaySwitch".into(); output.display = Some(value.display); output.data = Some(envelope.into_vec().into()); },
+            HostEvent::CaptureDisplaysRequest { envelope, .. } => { output.kind = "captureDisplays".into(); output.data = Some(envelope.into_vec().into()); },
             HostEvent::VideoControl(VideoControl::RefreshAll) => output.kind = "refreshAll".into(),
             HostEvent::VideoControl(VideoControl::RefreshDisplay(index)) => { output.kind = "refreshDisplay".into(); output.display = Some(index); },
             HostEvent::VideoControl(VideoControl::FrameReceived) => output.kind = "frameReceived".into(),
