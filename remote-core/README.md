@@ -76,3 +76,17 @@ cargo run --manifest-path remote-core/Cargo.toml -p remote-input --example windo
 
 This deliberately injects the A key into the focused window. Never run it on a
 production desktop. CI uses a fake input backend and does not inject keys.
+
+To manually test the capture-to-codec bridge in an interactive Windows session
+with the documented native dependencies installed:
+
+```powershell
+$env:REMOTE_CORE_TEST_DISPLAY = "1"
+cargo test --manifest-path remote-core/Cargo.toml -p remote-codec --test capture_pipeline -- --nocapture
+Remove-Item Env:REMOTE_CORE_TEST_DISPLAY
+```
+
+The test expects a capturable display with even dimensions no larger than
+4096×4096 and BGRA/RGBA pixels; it may fail on a locked or unavailable desktop.
+It does not transmit or render frames. Explicitly inspect the desktop and
+permissions before running it.
