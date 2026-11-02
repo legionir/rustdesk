@@ -162,3 +162,9 @@ not grant input or establish peer platform compatibility. The experimental
 loopback host is view-only and will reject input; a separate trusted host must
 explicitly enable scan-mode dispatch. Windows scan-code behavior, cleanup and
 Node bindings have not been built or tested.
+
+For the experimental loopback host, the pre-authorization accept deadline also
+bounds owner approval and its initial response. Display enumeration is blocking;
+the approval worker rechecks expiry afterward, even if the expiration timer was
+waiting on the same session mutex. This behavior is untested, and it does not
+turn caller-provided approval into a trusted OS consent prompt.
