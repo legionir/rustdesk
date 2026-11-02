@@ -182,8 +182,8 @@ credential. Dimensions must satisfy the prototype encoder's even 2–4096 pixel
 bounds, and the first capture may return `WouldBlock`. The example is not yet
 built or tested.
 
-The experimental `bindings/node` Node-API addon covers local display enumeration
-and one raw frame capture only. It is not a remote desktop SDK; see its README
+The experimental `bindings/node` Node-API addon covers local display enumeration,
+one raw frame capture and independent software-frame encoding only. It is not a remote desktop SDK; see its README
 for prerequisites, privacy constraints and limitations. It has not been built
 or tested.
 

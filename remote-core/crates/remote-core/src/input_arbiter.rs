@@ -123,7 +123,7 @@ impl<B: InputBackend> ControlledSession<B> {
 impl<B: InputBackend> Drop for ControlledSession<B> {
     fn drop(&mut self) {
         if !self.owns_lease { return; }
-        if self.host.close().is_err() { self.cleanup_failed = true; }
+        self.cleanup_failed = self.host.close().is_err();
         if let Ok(mut state) = self.state.lock() {
             if state.owner == Some(self.host.id()) {
                 state.owner = None;

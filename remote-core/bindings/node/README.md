@@ -1,8 +1,8 @@
 # Experimental Node-API capture binding
 
 This is a partial binding, not a Node remote desktop SDK. It currently exposes
-only display enumeration and a single raw capture using RustDesk's existing
-capture adapter. It does not expose input injection, a session, networking,
+display enumeration, a single raw capture and single-frame software encoding
+using RustDesk adapters. It does not expose input injection, a session, networking,
 codec negotiation, secure transport or authentication. No binary is shipped.
 The API and build have not been tested.
 
@@ -28,3 +28,13 @@ Capture contains private screen data. Invoke only with the local user's
 permission and avoid logging or transmitting frame buffers. This binding is not
 an OS security boundary and has no trusted-consent UI. Use a disposable
 interactive Windows desktop for manual verification.
+
+`encodeFrame(data, options)` adds single-frame software VP8/VP9/AV1 encoding for
+packed BGRA or RGBA input. It copies the JS input before returning, then
+executes on a libuv worker; the 64 MiB copy may block the event loop briefly.
+Only one encode can be outstanding; others are rejected until it finishes.
+Each call uses a fresh encoder and represents a separate stream, not continuous
+video, protocol framing or codec negotiation. The 16 MiB output check happens
+after native encoding and does not bound native allocations or JS-held buffers.
+There is deliberately no Node decoder for untrusted bitstreams. This API is
+experimental and untested.

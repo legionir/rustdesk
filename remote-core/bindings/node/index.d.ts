@@ -20,3 +20,16 @@ export interface CapturedFrame {
 export function listDisplays(): Promise<DisplayMetadata[]>;
 /** timeoutMs is a backend hint, not a hard deadline. May reject with WouldBlock. */
 export function captureDisplay(displayIndex: number, timeoutMs: number): Promise<CapturedFrame>;
+export interface EncodeOptions {
+  width: number;
+  height: number;
+  stride: number;
+  codec: 'vp8' | 'vp9' | 'av1';
+  pixelFormat: 'bgra' | 'rgba';
+  quality: number;
+  ptsMs: number;
+}
+export interface EncodedPacket { data: Buffer; key: boolean; ptsMs: number }
+export interface EncodedFrame { codec: 'vp8' | 'vp9' | 'av1'; packets: EncodedPacket[] }
+/** One independent frame/encoder invocation; not a persistent video stream. */
+export function encodeFrame(data: Buffer, options: EncodeOptions): Promise<EncodedFrame>;
