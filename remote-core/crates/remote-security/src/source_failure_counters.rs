@@ -70,7 +70,7 @@ impl SourceFailureCounters {
     /// apply an explicitly reviewed alternative, never silently skip recording.
     pub fn record_failure(&mut self, ip: IpAddr, minute: u64) -> Result<(), CounterError> {
         let keys = keys(ip);
-        let missing = keys.iter().filter(|key| !self.entries.contains_key(key)).count();
+        let missing = keys.iter().filter(|key| !self.entries.contains_key(*key)).count();
         if self.entries.len().saturating_add(missing) > self.max_buckets { return Err(CounterError::Capacity); }
         if keys.iter().any(|key| self.entries.get(key).map_or(false, |counter| minute < counter.minute)) {
             return Err(CounterError::ClockRegression);
@@ -113,6 +113,18 @@ mod tests {
         assert_eq!(c.record_failure(b, 20), Err(CounterError::Capacity));
         assert_eq!(c.record_failure(a, 19), Err(CounterError::ClockRegression));
         assert_eq!(c.bucket_count(), 4);
+    }
+    #[test]
+    fn source_success_can_clear_shared_prefixes_without_clearing_other_addresses() {
+        let mut c = SourceFailureCounters::new(256).unwrap();
+        for n in 0..61u16 {
+            c.record_failure(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0, 0, 0, n)), 2).unwrap();
+        }
+        let first = "2001:db8:1:2::".parse().unwrap();
+        let second = "2001:db8:1:2::1".parse().unwrap();
+        c.clear_source_on_success(first);
+        assert_eq!(c.check(second, 2).unwrap(), Decision::Allowed);
+        assert_eq!(c.bucket_count(), 60);
     }
     #[test]
     fn shared_ipv6_prefix_is_evaluated_before_address() {

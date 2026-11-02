@@ -81,7 +81,12 @@ success and emits audit alarms. The terminal OS-credential path delegates to
 Windows login gate; terminal/OS login is outside the current prototype. The
 current RemoteCore admission permit caps concurrent pre-auth work but is **not**
 an equivalent failed-login rate limiter, and a password transcript permits
-offline guessing. Before integrating a policy, resolve trusted peer-address
+offline guessing. `remote_security::source_failure_counters` now exposes an
+opt-in, bounded, caller-driven extraction of the default source address/prefix
+counter thresholds. It is not integrated into login or transport and cannot
+limit concurrent already-admitted attempts. It differs by rejecting clock
+regression, saturating counters and failing on bounded storage exhaustion. It
+retains the source's shared-prefix reset behavior (which needs policy review). Before integrating a policy, resolve trusted peer-address
 attribution through proxies/WSS, shared-prefix reset semantics, bounded storage,
 concurrent attempts, persistence, lockout/DoS risk and auditing with the owner;
 do not silently treat self-reported IDs or HTTP headers as authenticated IPs.

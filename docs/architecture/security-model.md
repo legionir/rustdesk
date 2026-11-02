@@ -83,3 +83,12 @@ any code with a broker clone can approve. The embedding application must present
 a trusted owner prompt, secure any cross-process communication, close expired
 connections and provision identities. Races, revocation and behavior on real
 Windows have not been built, tested or reviewed.
+
+An **unwired, untested** `source_failure_counters` module records source-style
+password-failure totals and IPv6 /64, /56 and /48 buckets with explicit bounded
+capacity. It does not block login, attribute connections, provide an atomic
+check-and-attempt gate, persist state or emit audit events. Capacity exhaustion
+is an error (it must not be ignored). Its explicit source-compatible success
+reset clears shared IPv6 prefix counters and can enable bypass by one successful
+peer; default integration and policy require human security review. Proxy and
+WSS endpoints must not use unauthenticated headers as trusted client IPs.
