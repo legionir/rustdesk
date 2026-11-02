@@ -93,3 +93,80 @@ mod tests {
         let mut invalid = request; invalid.height = 0; assert!(Envelope::display_switch_event(&invalid).is_err());
     }
 }
+
+/// Requested display mode. Applying it changes local OS state and must require
+/// a separate trusted authorization, current display and mode validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayResolution { pub display: u32, pub width: i32, pub height: i32 }
+impl Envelope {
+    /// Existing source `ChangeDisplayResolution` request; constructing this
+    /// does not change resolution. The peer might apply it to its real OS.
+    pub fn display_resolution_event(value: DisplayResolution) -> Result<Self, DisplayControlError> {
+        if value.display > i32::MAX as u32 || !(1..=MAX_DISPLAY_DIMENSION).contains(&value.width)
+            || !(1..=MAX_DISPLAY_DIMENSION).contains(&value.height) { return Err(DisplayControlError::Invalid); }
+        let resolution = message_proto::Resolution { width: value.width, height: value.height, ..Default::default() };
+        let mut misc = message_proto::Misc::new();
+        misc.set_change_display_resolution(message_proto::DisplayResolution { display: value.display as i32, resolution: Some(resolution).into(), ..Default::default() });
+        let mut inner = message_proto::Message::new(); inner.set_misc(misc); Ok(Self { inner })
+    }
+    /// Inspect a request without applying it; mode support remains unverified.
+    pub fn display_resolution(&self) -> Result<DisplayResolution, DisplayControlError> {
+        let value = match self.inner.union.as_ref() {
+            Some(message::Union::Misc(misc)) => match misc.union.as_ref() {
+                Some(message_proto::misc::Union::ChangeDisplayResolution(value)) => value,
+                _ => return Err(DisplayControlError::Unexpected),
+            }, _ => return Err(DisplayControlError::Unexpected),
+        };
+        let resolution = value.resolution.as_ref().ok_or(DisplayControlError::Invalid)?;
+        if value.display < 0 || !(1..=MAX_DISPLAY_DIMENSION).contains(&resolution.width)
+            || !(1..=MAX_DISPLAY_DIMENSION).contains(&resolution.height) { return Err(DisplayControlError::Invalid); }
+        Ok(DisplayResolution { display: value.display as u32, width: resolution.width, height: resolution.height })
+    }
+    /// Existing source query requesting a switch-display metadata response.
+    pub fn display_query_event(display: u32) -> Result<Self, DisplayControlError> {
+        let display = i32::try_from(display).map_err(|_| DisplayControlError::Invalid)?;
+        let mut misc = message_proto::Misc::new();
+        misc.set_message_query(message_proto::MessageQuery { switch_display: display, ..Default::default() });
+        let mut inner = message_proto::Message::new(); inner.set_misc(misc); Ok(Self { inner })
+    }
+    pub fn display_query(&self) -> Result<u32, DisplayControlError> {
+        let value = match self.inner.union.as_ref() {
+            Some(message::Union::Misc(misc)) => match misc.union.as_ref() {
+                Some(message_proto::misc::Union::MessageQuery(value)) => value.switch_display,
+                _ => return Err(DisplayControlError::Unexpected),
+            }, _ => return Err(DisplayControlError::Unexpected),
+        };
+        u32::try_from(value).map_err(|_| DisplayControlError::Invalid)
+    }
+    /// Existing source hint identifying the display under the remote cursor.
+    /// It is not a switch authorization or proof of cursor position.
+    pub fn follow_current_display_event(display: u32) -> Result<Self, DisplayControlError> {
+        let display = i32::try_from(display).map_err(|_| DisplayControlError::Invalid)?;
+        let mut misc = message_proto::Misc::new(); misc.set_follow_current_display(display);
+        let mut inner = message_proto::Message::new(); inner.set_misc(misc); Ok(Self { inner })
+    }
+    pub fn follow_current_display(&self) -> Result<u32, DisplayControlError> {
+        let value = match self.inner.union.as_ref() {
+            Some(message::Union::Misc(misc)) => match misc.union.as_ref() {
+                Some(message_proto::misc::Union::FollowCurrentDisplay(value)) => *value,
+                _ => return Err(DisplayControlError::Unexpected),
+            }, _ => return Err(DisplayControlError::Unexpected),
+        };
+        u32::try_from(value).map_err(|_| DisplayControlError::Invalid)
+    }
+}
+#[cfg(test)]
+mod extra_tests {
+    use super::*;
+    #[test]
+    fn resolution_query_and_follow_are_bounded_without_side_effects() {
+        let resolution = DisplayResolution { display: 1, width: 1920, height: 1080 };
+        let event = Envelope::display_resolution_event(resolution).unwrap();
+        let wire = event.encode(4096).unwrap();
+        assert_eq!(Envelope::decode(&wire, 4096).unwrap().display_resolution().unwrap(), resolution);
+        assert_eq!(Envelope::display_query_event(1).unwrap().display_query().unwrap(), 1);
+        assert_eq!(Envelope::follow_current_display_event(2).unwrap().follow_current_display().unwrap(), 2);
+        assert!(Envelope::display_query_event(u32::MAX).is_err());
+        assert!(Envelope::display_resolution_event(DisplayResolution { height: 0, ..resolution }).is_err());
+    }
+}
