@@ -54,8 +54,8 @@ pub struct ListenerData {
 struct ListenerState {
     data: Mutex<Option<ListenerData>>,
     busy: AtomicBool,
-    // Deliberately held while any JS object/task references the listener.
-    _lease: Lease,
+    // Released on explicit close or when the last object/task is dropped.
+    lease: Mutex<Option<Lease>>,
     address: String,
     pin: [u8; 32],
 }
@@ -69,7 +69,7 @@ impl ListenerBusy {
 }
 impl Drop for ListenerBusy { fn drop(&mut self) { self.0.busy.store(false, Ordering::Release); } }
 pub struct SessionData { host: NativeHost, id: SessionId, principal: Principal, claims: LoginClaims, approved_displays: Option<Vec<remote_capture::DisplayInfo>> }
-struct SessionState { data: Mutex<Option<SessionData>>, busy: AtomicBool, _lease: Lease }
+struct SessionState { data: Mutex<Option<SessionData>>, busy: AtomicBool, lease: Mutex<Option<Lease>> }
 struct SessionBusy(Arc<SessionState>);
 impl SessionBusy {
     fn acquire(state: &Arc<SessionState>) -> Result<Self> {
@@ -98,7 +98,7 @@ impl Task for ListenTask {
     }
     fn resolve(&mut self, _: Env, output: Self::Output) -> Result<LocalHost> {
         let lease = self.lease.take().ok_or_else(|| Error::from_reason("host listener lease unavailable"))?;
-        Ok(LocalHost { state: Arc::new(ListenerState { data: Mutex::new(Some(output.0)), busy: AtomicBool::new(false), _lease: lease, address: output.1, pin: output.2 }) })
+        Ok(LocalHost { state: Arc::new(ListenerState { data: Mutex::new(Some(output.0)), busy: AtomicBool::new(false), lease: Mutex::new(Some(lease)), address: output.1, pin: output.2 }) })
     }
 }
 
@@ -127,8 +127,8 @@ impl LocalHost {
     #[napi]
     pub fn signing_public_key(&self) -> Buffer { self.state.pin.to_vec().into() }
     /// Receive one pending login. The connection is NOT approved yet. Only one
-    /// session is admitted per addon process, including closed-but-retained JS
-    /// objects. A timeout or failure closes the candidate stream.
+    /// session is admitted per addon process. Explicitly close finished
+    /// sessions; a timeout or failure closes the candidate stream.
     #[napi]
     pub fn accept(&self, timeout_ms: u32) -> Result<AsyncTask<AcceptTask>> {
         let deadline = wait(timeout_ms)?;
@@ -142,6 +142,7 @@ impl LocalHost {
     pub fn close(&self) -> Result<()> {
         let _busy = ListenerBusy::acquire(&self.state)?;
         self.state.data.lock().map_err(|_| Error::from_reason("host listener state poisoned"))?.take();
+        self.state.lease.lock().map_err(|_| Error::from_reason("host listener lease poisoned"))?.take();
         Ok(())
     }
 }
@@ -172,7 +173,7 @@ impl Task for AcceptTask {
     }
     fn resolve(&mut self, _: Env, output: Self::Output) -> Result<LocalHostSession> {
         let lease = self.lease.take().ok_or_else(|| Error::from_reason("host session lease unavailable"))?;
-        Ok(LocalHostSession { state: Arc::new(SessionState { data: Mutex::new(Some(output)), busy: AtomicBool::new(false), _lease: lease }) })
+        Ok(LocalHostSession { state: Arc::new(SessionState { data: Mutex::new(Some(output)), busy: AtomicBool::new(false), lease: Mutex::new(Some(lease)) }) })
     }
 }
 
@@ -221,6 +222,7 @@ impl LocalHostSession {
         let mut data = self.state.data.lock().map_err(|_| Error::from_reason("host session state poisoned"))?;
         if let Some(session) = data.as_mut() { session.host.close().map_err(js_error)?; }
         data.take();
+        self.state.lease.lock().map_err(|_| Error::from_reason("host session lease poisoned"))?.take();
         Ok(())
     }
 }
@@ -274,8 +276,9 @@ impl Task for SendFrameTask {
         let height = u32::try_from(approved.height).map_err(js_error)?;
         let display_wire = i32::try_from(self.display_index).map_err(js_error)?;
         let config = EncoderConfig { codec: Codec::Vp9, width, height, quality: 1.0, keyframe_interval: Some(30) };
+        let rt = runtime()?;
         let mut pump = session.host.start_capture(display, display_wire, config, POSTAUTH).map_err(js_error)?;
-        let result = runtime()?.block_on(session.host.send_capture(&mut pump, self.capture_wait, self.send_wait, 0));
+        let result = rt.block_on(session.host.send_capture(&mut pump, self.capture_wait, self.send_wait, 0));
         let stop = session.host.stop_capture(&mut pump);
         drop(pump);
         result.map_err(js_error)?;
