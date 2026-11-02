@@ -355,7 +355,7 @@ pub mod windows_mouse {
 /// arbitration, and is not a complete RustDesk keyboard implementation.
 pub mod windows_keyboard {
     use super::{HostInputError, HostInputSession};
-    use remote_input::{InputBackend, VirtualKey};
+    use remote_input::{InputBackend, ScanCode, VirtualKey};
     use remote_protocol::{Envelope, KeyboardPayload, ProtocolError};
     use std::{error::Error, fmt};
 

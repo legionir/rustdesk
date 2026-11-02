@@ -19,6 +19,8 @@ impl InputBackend for Fake {
     fn key_up(&mut self, k: VirtualKey) -> io::Result<()> { self.0.borrow_mut().push(format!("up:{}", k.code())); Ok(()) }
     fn scan_down(&mut self, key: ScanCode) -> io::Result<()> { self.0.borrow_mut().push(format!("scan-down:{}", key.code())); Ok(()) }
     fn scan_up(&mut self, key: ScanCode) -> io::Result<()> { self.0.borrow_mut().push(format!("scan-up:{}", key.code())); Ok(()) }
+    fn raw_virtual_down(&mut self, key: VirtualKey) -> io::Result<()> { self.0.borrow_mut().push(format!("raw-down:{}", key.code())); Ok(()) }
+    fn raw_virtual_up(&mut self, key: VirtualKey) -> io::Result<()> { self.0.borrow_mut().push(format!("raw-up:{}", key.code())); Ok(()) }
     fn type_text(&mut self, text: &str) -> io::Result<()> { self.0.borrow_mut().push(format!("text:{text}")); Ok(()) }
 }
 fn event(key: ControlKey, down: bool, press: bool, mode: KeyboardMode, modifiers: bool) -> Envelope {
@@ -90,4 +92,19 @@ fn restricted_map_mode_tracks_scan_keys_and_releases_on_revoke() {
     host.restrict_permissions(Permissions::default()).unwrap();
     assert_eq!(&*calls.borrow(), &["scan-down:57373", "scan-up:57373", "scan-down:57373", "scan-up:57373"]);
     assert!(Envelope::windows_scan_event(0x12345, true).is_err());
+}
+
+#[test]
+fn restricted_translate_mode_dispatches_source_code_and_releases_on_revoke() {
+    let fake = Fake::default(); let calls = fake.0.clone(); let mut host = authorized(fake);
+    let vk_down = Envelope::windows_translate_event(0x0041_1234, true).unwrap();
+    let vk_up = Envelope::windows_translate_event(0x0041_ffff, false).unwrap();
+    remote_core::windows_keyboard::dispatch_translate(&mut host, &vk_down).unwrap();
+    let scan = Envelope::windows_translate_event(0xe01d, true).unwrap();
+    assert!(remote_core::windows_keyboard::dispatch_translate(&mut host, &scan).is_err());
+    remote_core::windows_keyboard::dispatch_translate(&mut host, &vk_up).unwrap();
+    remote_core::windows_keyboard::dispatch_translate(&mut host, &scan).unwrap();
+    host.restrict_permissions(Permissions::default()).unwrap();
+    assert_eq!(&*calls.borrow(), &["raw-down:65", "raw-up:65", "scan-down:57373", "scan-up:57373"]);
+    assert!(Envelope::windows_translate_event(0xffff_0000, true).is_err());
 }
