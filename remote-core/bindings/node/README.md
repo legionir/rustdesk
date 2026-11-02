@@ -3,7 +3,7 @@
 This is a partial binding, not a Node remote desktop SDK. It currently exposes
 display enumeration, a single raw capture and single-frame software encoding
 using RustDesk adapters. It also has limited pinned TCP/WSS viewers and an
-experimental loopback-only, view-only single-frame host. It does not provide a
+experimental loopback-only, view-only host with single-frame and bounded burst sends. It does not provide a
 general host server, trusted consent, automatic codec negotiation, network
 video rendering or a complete input API. An explicit trusted-only local batch
 decoder is available but is not safe for untrusted compressed streams. No binary is shipped. The API and build have not been tested

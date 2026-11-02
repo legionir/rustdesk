@@ -242,7 +242,7 @@ run on an appropriate dedicated thread. It is not a host server, renderer,
 consent UI or authenticated transport. It has not been built or tested.
 
 The Node addon includes experimental pinned direct TCP/WSS viewers and a
-loopback-only, view-only single-frame host. It does not render video or provide
+loopback-only, view-only host with single-frame and bounded burst sends. It does not render video or provide
 a complete input or general network host API. Its security and build are unverified; see `bindings/node/README.md`.
 
 A further manual `windows_loopback_session` example composes the provisional
