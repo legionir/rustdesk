@@ -129,3 +129,12 @@ export class LocalHostSession {
 }
 /** Explicit loopback host, unbuilt/untested and not a production security boundary. */
 export function listenLocalHost(options: LocalHostOptions): Promise<LocalHost>;
+
+/** Source libyuv ARGB byte convention, not a guaranteed canvas RGBA layout. */
+export interface TrustedDecodedImage { inputIndex: number; display: number; width: number; height: number; stride: number; data: Buffer }
+/**
+ * Local, trusted input only. Native codec decoding is not hardened: malicious
+ * bitstreams may allocate unbounded native memory or compromise the process.
+ * Batches are independent and must start with a keyframe; no network/rendering.
+ */
+export function decodeTrustedVideoBatch(messages: Buffer[], acknowledgeTrustedInputOnly: boolean): Promise<TrustedDecodedImage[]>;
