@@ -155,6 +155,18 @@ impl<T: NetworkTransport> ViewerConnection<T> {
             Err(error) => { self.abort(); Err(ViewerError::Network(error)) },
         }
     }
+    /// Advertise only decoder implementations the embedding application has
+    /// actually checked. Source negotiation is host-side and remains untrusted;
+    /// this message does not install a decoder or prove compatibility.
+    pub async fn send_decoding_advertisement(&mut self, capabilities: remote_protocol::DecodingAdvertisement, deadline: Duration) -> Result<(), ViewerError> {
+        if self.phase != Phase::Connected || deadline.is_zero() { return Err(ViewerError::InvalidState); }
+        let wire = Envelope::supported_decoding_event(capabilities).encode(MAX_PRE_AUTH_BYTES.min(self.max_bytes))?;
+        self.phase = Phase::Busy;
+        match self.transport.send(&wire, deadline).await {
+            Ok(()) => { self.phase = Phase::Connected; Ok(()) },
+            Err(error) => { self.abort(); Err(ViewerError::Network(error)) },
+        }
+    }
     /// Receive one message. Cursor decoding is bounded but not audited; video
     /// remains compressed. On cancellation close/drop the Busy connection.
     pub async fn receive(&mut self, deadline: Duration) -> Result<ViewerEvent, ViewerError> {

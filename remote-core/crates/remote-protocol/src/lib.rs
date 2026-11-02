@@ -167,6 +167,17 @@ impl Envelope {
         };
         option.and_then(|o| o.supported_decoding.as_ref()).ok_or(ProtocolError::UnexpectedMessage)
     }
+    /// Extract only the existing SupportedDecoding protobuf into a standalone
+    /// Misc option, preserving its source fields and unknown fields. Other
+    /// login/option fields, including password proof, are deliberately excluded.
+    /// Values are untrusted claims, not verified decoder availability.
+    pub fn extract_supported_decoding_event(&self) -> Result<Self, ProtocolError> {
+        let decoding = self.source_supported_decoding()?.clone();
+        let option = message_proto::OptionMessage { supported_decoding: Some(decoding).into(), ..Default::default() };
+        let mut misc = message_proto::Misc::new(); misc.set_option(option);
+        let mut inner = Message::new(); inner.set_misc(misc);
+        Ok(Self { inner })
+    }
     /// Construct the same Misc→Option→SupportedDecoding update used by the
     /// RustDesk client. Only explicitly declared abilities are advertised;
     /// the caller must verify runtime support and authorization separately.
