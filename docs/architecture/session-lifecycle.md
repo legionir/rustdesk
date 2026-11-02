@@ -104,3 +104,12 @@ retry detectable cleanup failures. This policy assumes exclusive input
 ownership and may itself release a key held by another actor if that assumption
 is false. Windows Enigo still hides some OS failures. The new fake case has not
 been run or validated on a desktop.
+
+`ViewerConnection::send_video_control` and `HostConnection::receive_event` now
+carry the existing source refresh/received variants. The host requires local
+screen-view permission and returns a request to its caller rather than changing
+a capture/encoder itself. The caller must validate display indices against its
+current display list, rate-limit requests and implement refresh/ACK scheduling.
+The legacy `receive_input` method consumes but rejects these controls; do not
+mix the two receive styles if video controls matter. These additions and the
+synthetic test are unbuilt and untested.

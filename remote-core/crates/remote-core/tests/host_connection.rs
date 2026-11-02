@@ -197,3 +197,35 @@ async fn cancelled_pre_auth_handshake_closes_socket_and_releases_permit() {
     let _ = viewer_socket.receive(WAIT).await;
     assert!(viewer_socket.receive(WAIT).await.is_err());
 }
+
+#[tokio::test]
+async fn video_controls_reach_authorized_scheduler_but_are_not_executed() {
+    use remote_core::host_connection::HostEvent;
+    use remote_core::viewer_connection::{LoginIdentity, ViewerConnection};
+    use remote_protocol::{desktop::PeerInfo, video_control::VideoControl};
+    let (socket, viewer_socket) = sockets().await;
+    let admission = AdmissionController::new(AdmissionLimits::default()).unwrap();
+    let permit = admission.admit("127.0.0.1".parse().unwrap()).unwrap();
+    let id = SessionId::new([13; 16]).unwrap();
+    let principal = Principal::new("holder".into()).unwrap();
+    let verifier = PasswordVerifier::new(id, principal.clone(), "test", "salt", WAIT).unwrap();
+    let mut host = HostConnection::new(socket, id, Fake::default(), verifier, permit, LIMIT).unwrap();
+    let mut viewer = ViewerConnection::new(viewer_socket, LIMIT).unwrap();
+    let identity = LoginIdentity { target: "host".into(), viewer_id: "v".into(), viewer_name: "v".into(), wire_session_id: 13, version: "test".into() };
+    let permissions = Permissions { view_screen: true, ..Default::default() };
+    let info = PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
+    let (_, login) = tokio::join!(async {
+        host.receive_password_login(WAIT).await.unwrap();
+        host.authorize(permissions, &mut OwnerApproval::new(id, principal, Some(permissions))).unwrap();
+        host.send_login_success(&info, WAIT).await.unwrap();
+    }, viewer.login(&identity, "test", WAIT));
+    login.unwrap();
+    for control in [VideoControl::RefreshAll, VideoControl::RefreshDisplay(3), VideoControl::FrameReceived] {
+        let (sent, received) = tokio::join!(viewer.send_video_control(control, WAIT), host.receive_event(WAIT));
+        sent.unwrap(); assert_eq!(received.unwrap(), HostEvent::VideoControl(control));
+    }
+    host.restrict_permissions(Permissions::default()).unwrap();
+    let (sent, received) = tokio::join!(viewer.send_video_control(VideoControl::RefreshAll, WAIT), host.receive_event(WAIT));
+    sent.unwrap(); assert!(received.is_err());
+    viewer.close(); host.close().unwrap();
+}
