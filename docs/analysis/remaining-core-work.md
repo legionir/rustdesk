@@ -144,3 +144,9 @@ from native failure/hotplug or coordinate refresh/decoder state. Do not mix it
 with separately managed pumps for the same session. The Windows two-monitor
 loopback example requires explicit screen-capture confirmation; it has not been
 built or run and must be used only on an authorized disposable desktop.
+
+A separate bounded `DisplayCadences` helper can reserve round-robin capture
+attempts at caller-specified rates and `VideoStreams` tracks keyframe recovery
+per display. Neither spawns tasks or integrates MultiCapture, decoder creation,
+subscriptions, ACKs or QoS. They do not establish fairness across separate
+connections or enforce global CPU, decoder allocation or bandwidth budgets.

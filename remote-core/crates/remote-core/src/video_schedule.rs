@@ -169,3 +169,76 @@ mod tests {
         acks.disconnect(2).unwrap(); assert_eq!(acks.outstanding(0), 0);
     }
 }
+
+/// Cooperative round-robin capture cadence across a bounded set of displays.
+/// No sleeping, tasks, encoder changes or ACK policy are performed. `next_due`
+/// reserves a capture attempt (including WouldBlock/failures), avoiding a busy
+/// loop; call with a monotonic local clock and drive all work on one owner.
+pub struct DisplayCadences {
+    entries: Vec<(u32, FrameCadence)>,
+    cursor: usize,
+}
+impl DisplayCadences {
+    pub fn new() -> Self { Self { entries: Vec::new(), cursor: 0 } }
+    pub fn add(&mut self, display: u32, fps: u32) -> Result<(), ScheduleError> {
+        if self.entries.iter().any(|(id, _)| *id == display) { return Err(ScheduleError::InvalidDisplay); }
+        if self.entries.len() >= MAX_DISPLAYS { return Err(ScheduleError::TooManyDisplays); }
+        self.entries.push((display, FrameCadence::new(fps)?)); Ok(())
+    }
+    pub fn remove(&mut self, display: u32) -> bool {
+        let Some(index) = self.entries.iter().position(|(id, _)| *id == display) else { return false; };
+        self.entries.remove(index);
+        if self.entries.is_empty() { self.cursor = 0; }
+        else if index < self.cursor { self.cursor -= 1; }
+        else if self.cursor >= self.entries.len() { self.cursor = 0; }
+        true
+    }
+    pub fn set_fps(&mut self, display: u32, fps: u32) -> Result<(), ScheduleError> {
+        self.entries.iter_mut().find(|(id, _)| *id == display).ok_or(ScheduleError::InvalidDisplay)?.1.set_fps(fps)
+    }
+    /// Return and reserve at most one currently due display. When none are due,
+    /// returns the shortest wait, or `None` when no displays are registered.
+    pub fn next_due(&mut self, now: Instant) -> Result<(Option<u32>, Option<Duration>), ScheduleError> {
+        if self.entries.is_empty() { return Ok((None, None)); }
+        let mut min_wait: Option<Duration> = None;
+        for step in 0..self.entries.len() {
+            let index = (self.cursor + step) % self.entries.len();
+            match self.entries[index].1.remaining(now)? {
+                None => {
+                    let (id, cadence) = &mut self.entries[index];
+                    cadence.begin_attempt(now)?;
+                    let display = *id;
+                    self.cursor = (index + 1) % self.entries.len();
+                    return Ok((Some(display), None));
+                },
+                Some(wait) => min_wait = Some(min_wait.map_or(wait, |current| current.min(wait))),
+            }
+        }
+        Ok((None, min_wait))
+    }
+}
+impl Default for DisplayCadences { fn default() -> Self { Self::new() } }
+#[cfg(test)]
+mod multi_tests {
+    use super::*;
+    #[test]
+    fn reserves_in_round_robin_without_bursting_after_stall() {
+        let now = Instant::now(); let mut cadence = DisplayCadences::new();
+        cadence.add(0, 10).unwrap(); cadence.add(1, 10).unwrap();
+        assert_eq!(cadence.next_due(now).unwrap().0, Some(0));
+        assert_eq!(cadence.next_due(now).unwrap().0, Some(1));
+        assert_eq!(cadence.next_due(now).unwrap().1, Some(Duration::from_millis(100)));
+        let later = now + Duration::from_secs(5);
+        assert_eq!(cadence.next_due(later).unwrap().0, Some(0));
+        assert_eq!(cadence.next_due(later).unwrap().0, Some(1));
+        assert_eq!(cadence.next_due(later).unwrap().1, Some(Duration::from_millis(100)));
+        assert!(cadence.remove(0)); assert!(!cadence.remove(0));
+    }
+    #[test]
+    fn clock_regression_and_duplicates_are_rejected() {
+        let now = Instant::now(); let mut cadence = DisplayCadences::new();
+        cadence.add(3, 30).unwrap(); assert!(cadence.add(3, 30).is_err());
+        cadence.next_due(now).unwrap();
+        assert!(matches!(cadence.next_due(now - Duration::from_secs(1)), Err(ScheduleError::ClockWentBackwards)));
+    }
+}
