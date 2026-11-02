@@ -17,6 +17,11 @@ napi-derive = "2.16"
 
 [features]
 linux-pkg-config = ["remote-capture/linux-pkg-config", "remote-codec/linux-pkg-config"]
+wayland = ["remote-capture/wayland", "remote-codec/wayland"]
+drm = ["remote-capture/drm", "remote-codec/drm"]
+hwcodec = ["remote-capture/hwcodec", "remote-codec/hwcodec"]
+vram = ["remote-capture/vram", "remote-codec/vram"]
+mediacodec = ["remote-capture/mediacodec", "remote-codec/mediacodec"]
 
 [build-dependencies]
 napi-build = "2"

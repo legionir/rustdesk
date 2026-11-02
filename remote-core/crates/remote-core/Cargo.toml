@@ -11,6 +11,14 @@ remote-codec = { path = "../remote-codec" }
 remote-protocol = { path = "../remote-protocol" }
 remote-transport = { path = "../remote-transport" }
 
+[features]
+linux-pkg-config = ["remote-codec/linux-pkg-config"]
+wayland = ["remote-codec/wayland"]
+drm = ["remote-codec/drm"]
+hwcodec = ["remote-codec/hwcodec"]
+vram = ["remote-codec/vram"]
+mediacodec = ["remote-codec/mediacodec"]
+
 [dev-dependencies]
 base = { path = "../../../libs/base" }
 hbb_common = { path = "../../../libs/hbb_common" }

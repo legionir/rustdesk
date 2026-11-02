@@ -7,9 +7,10 @@ commit is `23e5bb471a040d62f0a6ad52591fb30784265b73`, and the hbb_common
 submodule is `fae47e024dd83cef6aaecde0aa7d11731df11649`.
 
 The capture adapter enumerates displays and exposes borrowed CPU frames or a native
-texture handle. Input and codec prototypes are described below. There is no
-network streaming, authentication, Node.js binding, or complete multi-platform
-support contract.
+texture handle. Input, codecs, session/security, loopback networking, provisional
+strict WSS and a partial Node binding are described below. They are incomplete,
+not yet integrated into a secure remote desktop, and do not establish a complete
+multi-platform support contract.
 Texture interpretation remains platform-specific. `WouldBlock` and timeouts
 retain the original backend's semantics. No guarantees about hotplug, scaling,
 concurrent sessions or stable monitor IDs have yet been established.
@@ -66,8 +67,9 @@ is best-effort and cannot handle process crash or power loss. This module is not
 an authenticator or a sandbox. Only use it under an authenticated, authorized
 session manager that serializes access to the OS input device; concurrent
 controllers can otherwise interfere with each other's keys. Layout conversion,
-scan-code modes, text/IME, repeat, monitor-relative mapping, and RustDesk
-protocol translation are not implemented.
+scan-code modes, text/IME, repeat and monitor-relative mapping are not implemented.
+Experimental mouse and unmodified legacy-control-key protocol translation covers
+only a subset and is documented in `../docs/api/protocol.md`.
 
 For an **interactive, disposable Windows desktop**, focus a test editor and run:
 
@@ -100,9 +102,8 @@ It is not a network transport and provides no authentication, encryption,
 heartbeat or reconnect. The Linux display integration test now sends encoded
 packet bytes through the local transport before decoding. Packet metadata is
 passed in-process by the test; it is **not** a wire protocol or a complete
-host/viewer session. Existing RustDesk `hbb_common::websocket::WsFramedStream`
-has been inspected, but a WS/WSS adapter has not yet been implemented or
-security-reviewed.
+host/viewer session. Separate experimental loopback TCP/WS adapters and a strict WSS client now exist;
+they are not yet security-reviewed or verified as a complete host/viewer.
 
 ## Session lifecycle prototype
 
@@ -211,3 +212,13 @@ insecure fallback. It authenticates the WSS endpoint, not the desktop peer, and
 is not end-to-end encrypted through a relay. It does not yet provide a secure
 host/viewer, trusted consent or a hardened video decoder. It has not been built,
 tested or audited; see `docs/architecture/transport-design.md`.
+
+### Source backend features
+
+The workspace forwards the source `scrap` features `wayland`, `drm`,
+`hwcodec`, `vram`, and `mediacodec` as opt-in features where relevant. This
+preserves access to upstream build paths; it **does not** implement or verify
+all hardware codecs, GPU texture handling, Wayland portal setup or mobile
+capture through the current public adapters. Feature combinations, extra native
+prerequisites and platform behavior remain untested. The software encoder API
+still supports only VP8, VP9 and AV1.

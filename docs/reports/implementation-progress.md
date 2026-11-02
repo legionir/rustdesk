@@ -64,3 +64,19 @@ independent `control_mouse` permission, unlike RustDesk's shared
 have fake-backend tests, written but not run, and neither demonstrates actual
 Windows input. There is still no input arbitration across sessions or secure
 network-to-session binding. These APIs must not be exposed to untrusted peers.
+
+## Strict WSS, arbitration, Node encode and feature forwarding (not tested)
+
+A provisional strict WSS client uses the pinned RustDesk WebSocket fork and an
+isolated Rustls configuration; certificate failure and binary-frame cases are
+written with disposable local test certificates but not run. TLS terminates at
+the WSS endpoint and does not authenticate an end desktop peer or protect the
+payload from the relay. Cloudflare interoperability is not established.
+
+Optional in-process input arbitration keeps one cooperating controller and
+quarantines detectable cleanup failures; it can be bypassed by unguarded input
+paths and is not an OS lock. The Node addon now includes a single-frame software
+encoder and a capture-to-encode example, plus unrun synthetic tests. The source
+`wayland`, `drm`, `hwcodec`, `vram` and `mediacodec` feature flags are forwarded,
+but the feature-specific public integrations, native builds and tests remain
+incomplete. No new build, test or CI was run.

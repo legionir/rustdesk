@@ -10,6 +10,11 @@ base = { path = "../../../libs/base" }
 
 [features]
 linux-pkg-config = ["scrap/linux-pkg-config"]
+wayland = ["scrap/wayland"]
+drm = ["scrap/drm"]
+hwcodec = ["scrap/hwcodec"]
+vram = ["scrap/vram"]
+mediacodec = ["scrap/mediacodec"]
 
 [dev-dependencies]
 remote-capture = { path = "../remote-capture" }
