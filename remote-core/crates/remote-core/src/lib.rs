@@ -22,7 +22,7 @@ pub mod video_sync;
 pub mod tracked_modifiers;
 
 use std::{error::Error, fmt};
-use remote_input::{InputBackend, InputController, InputError, MouseButton, VirtualKey};
+use remote_input::{InputBackend, InputController, InputError, MouseButton, ScanCode, VirtualKey};
 use remote_session::{Action, Authenticator, Authorizer, Credential, Permissions, Session, SessionError, SessionId, SessionState};
 
 /// Error returned by the session guard or input backend.
@@ -225,6 +225,14 @@ impl<B: InputBackend> HostInputSession<B> {
         self.input.key_press(key)?;
         Ok(())
     }
+    /// Press a restricted physical Windows scan code after keyboard authorization.
+    pub fn scan_down(&mut self, code: ScanCode) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?; self.input.scan_down(code)?; Ok(())
+    }
+    /// Release a tracked physical Windows scan code after keyboard authorization.
+    pub fn scan_up(&mut self, code: ScanCode) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?; self.input.scan_up(code)?; Ok(())
+    }
     /// Inject a bounded text sequence after keyboard authorization.
     /// Backend/OS limitations and controller-held key restrictions apply.
     pub fn type_text(&mut self, text: &str) -> Result<(), HostInputError> {
@@ -383,6 +391,21 @@ pub mod windows_keyboard {
         })
     }
 
+    /// Restricted source Map-mode dispatch using the pinned rdev Windows raw
+    /// scan-code backend. This does not implement source desktop switching,
+    /// modifier repair, repeat or translate mode. Caller must explicitly opt in,
+    /// bind an authorized Windows peer and ensure exclusive OS input ownership.
+    pub fn dispatch_map<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
+        host.session.check(remote_session::Action::ControlKeyboard).map_err(HostInputError::from)?;
+        let event = envelope.keyboard()?;
+        if event.mode() != 1 || event.press() || event.modifiers().next().is_some() {
+            return Err(DispatchError::Unsupported("unsupported map-mode flags or modifiers"));
+        }
+        let raw = match event.payload() { Some(KeyboardPayload::Position(value)) => value, _ => return Err(DispatchError::Unsupported("map-mode requires a position scan code")) };
+        let code = remote_input::ScanCode::new(raw).map_err(|_| DispatchError::Unsupported("invalid Windows scan code"))?;
+        if event.down() { host.scan_down(code)?; } else { host.scan_up(code)?; }
+        Ok(())
+    }
     /// Apply a non-modifier legacy control-key or Unicode/sequence message to a Windows-style backend.
     ///
     /// A `press` is a down/up pair; otherwise the wire `down` bit determines

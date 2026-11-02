@@ -9,7 +9,7 @@ use std::{error::Error, fmt};
 pub enum LegacyKey<'a> { ControlKey(i32), Unicode(u32), Sequence(&'a str) }
 /// Bounded keyboard/mouse construction error.
 #[derive(Debug)]
-pub enum InputWireError { InvalidControlKey, InvalidModifier, TooManyModifiers, InvalidText }
+pub enum InputWireError { InvalidControlKey, InvalidModifier, TooManyModifiers, InvalidText, InvalidScanCode }
 impl fmt::Display for InputWireError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -17,6 +17,7 @@ impl fmt::Display for InputWireError {
             Self::InvalidModifier => f.write_str("unrecognized modifier"),
             Self::TooManyModifiers => f.write_str("too many modifiers"),
             Self::InvalidText => f.write_str("invalid input text"),
+            Self::InvalidScanCode => f.write_str("invalid Windows scan code"),
         }
     }
 }
@@ -33,6 +34,15 @@ impl Envelope {
         let mut mouse = message_proto::MouseEvent::new(); mouse.mask = event.mask; mouse.x = event.x; mouse.y = event.y;
         mouse.modifiers = modifiers(values)?;
         let mut inner = message_proto::Message::new(); inner.set_mouse_event(mouse); Ok(Self { inner })
+    }
+    /// Construct a restricted source Map-mode scan-code event. The caller
+    /// must know that the host is Windows and accepts this opt-in mode.
+    pub fn windows_scan_event(code: u32, down: bool) -> Result<Self, InputWireError> {
+        let high = code >> 8; let low = code & 0xff;
+        if low == 0 || !matches!(high, 0 | 0xe0 | 0xe1) { return Err(InputWireError::InvalidScanCode); }
+        let mut keyboard = message_proto::KeyEvent::new(); keyboard.mode = message_proto::KeyboardMode::Map.into();
+        keyboard.down = down; keyboard.set_chr(code);
+        let mut inner = message_proto::Message::new(); inner.set_key_event(keyboard); Ok(Self { inner })
     }
     /// Construct a legacy-mode source keyboard message. The receiver determines
     /// semantics and permission; position/translate/map modes are not covered.

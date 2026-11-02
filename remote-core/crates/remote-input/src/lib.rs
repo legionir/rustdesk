@@ -232,6 +232,8 @@ impl<B: InputBackend> InputController<B> {
     }
     /// Whether physical scan codes are tracked; not an OS state query.
     pub fn has_held_scans(&self) -> bool { !self.scans.is_empty() }
+    /// Whether this controller tracks any physical or virtual key as held.
+    pub fn has_held_keyboard(&self) -> bool { !self.keys.is_empty() || !self.scans.is_empty() }
     /// Press a scan code. Mixing physical and virtual tracked keys is refused
     /// to avoid aliasing one OS key into two independent cleanup records.
     pub fn scan_down(&mut self, code: ScanCode) -> Result<(), InputError> {
