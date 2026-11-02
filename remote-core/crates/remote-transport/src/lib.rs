@@ -76,6 +76,48 @@ pub trait Transport: Send {
     fn close(&mut self);
 }
 
+/// Failure from a network-oriented message stream.
+///
+/// A failed send may have delivered some or all of a message. Callers must not
+/// automatically retry state-changing messages on a fresh connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkTransportError {
+    /// The call was rejected before attempting network I/O.
+    InvalidRequest(String),
+    /// The endpoint is no longer usable.
+    Closed,
+    /// A send began but its delivery outcome is unknown; the stream is closed.
+    SendOutcomeUnknown(String),
+    /// Receive failed or timed out; the stream is closed.
+    ReceiveFailed(String),
+}
+impl fmt::Display for NetworkTransportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidRequest(e) => write!(f, "invalid network request: {e}"),
+            Self::Closed => f.write_str("network stream is closed"),
+            Self::SendOutcomeUnknown(e) => write!(f, "network send outcome unknown: {e}"),
+            Self::ReceiveFailed(e) => write!(f, "network receive failed: {e}"),
+        }
+    }
+}
+impl std::error::Error for NetworkTransportError {}
+
+/// Ordered network messages with explicitly indeterminate send outcomes.
+///
+/// This interface is distinct from [`Transport`]: cancelling an in-flight send
+/// can deliver it. An implementation must close the stream when a send or
+/// receive future is cancelled or fails after I/O starts. These guarantees do
+/// not authenticate peers, encrypt messages, or ensure peer processing.
+pub trait NetworkTransport: Send {
+    /// Send one message. A successful return is not peer acknowledgement.
+    fn send<'a>(&'a mut self, bytes: &'a [u8], deadline: Duration) -> TransportFuture<'a, Result<(), NetworkTransportError>>;
+    /// Receive a bounded message.
+    fn receive(&mut self, deadline: Duration) -> TransportFuture<'_, Result<Box<[u8]>, NetworkTransportError>>;
+    /// Close the endpoint without waiting for peer acknowledgement.
+    fn close(&mut self);
+}
+
 /// One endpoint of a bounded in-process duplex channel.
 pub struct LocalTransport {
     sender: Option<mpsc::Sender<Box<[u8]>>>,

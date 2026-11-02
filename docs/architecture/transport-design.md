@@ -35,3 +35,13 @@ I/O operation drops the socket; send delivery is indeterminate. It deliberately
 does not implement the in-process `Transport` cancellation contract. No
 handshake, TLS, real session binding or Internet-facing TCP is provided. Tests
 have been written but not run.
+
+`NetworkTransport` is a separate object-safe contract from the in-process
+`Transport`: a failed or cancelled network send has an indeterminate delivery
+outcome and the stream must close if an in-flight operation fails or is
+cancelled. The existing loopback WebSocket and TCP wrappers implement it, and
+the video sender/receiver have a corresponding network path. Encoder reset and
+explicit decoder resynchronization remain necessary after interruption. This
+interface provides no authentication, confidentiality, server identity, or
+proof that a peer processed a message. Current implementations remain loopback
+only, plaintext, untested, and unsafe for private desktop content or input.

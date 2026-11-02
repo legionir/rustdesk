@@ -175,3 +175,25 @@ mod tests {
         assert!(!client.is_open());
     }
 }
+
+impl remote_transport::NetworkTransport for LoopbackTcp {
+    fn send<'a>(&'a mut self, bytes: &'a [u8], deadline: Duration) -> remote_transport::TransportFuture<'a, Result<(), remote_transport::NetworkTransportError>> {
+        Box::pin(async move {
+            LoopbackTcp::send(self, bytes, deadline).await.map_err(|e| match e {
+                TcpError::Closed => remote_transport::NetworkTransportError::Closed,
+                TcpError::InvalidTimeout | TcpError::MessageTooLarge { .. } => remote_transport::NetworkTransportError::InvalidRequest(e.to_string()),
+                _ => remote_transport::NetworkTransportError::SendOutcomeUnknown(e.to_string()),
+            })
+        })
+    }
+    fn receive(&mut self, deadline: Duration) -> remote_transport::TransportFuture<'_, Result<Box<[u8]>, remote_transport::NetworkTransportError>> {
+        Box::pin(async move {
+            LoopbackTcp::receive(self, deadline).await.map(Vec::into_boxed_slice).map_err(|e| match e {
+                TcpError::Closed => remote_transport::NetworkTransportError::Closed,
+                TcpError::InvalidTimeout => remote_transport::NetworkTransportError::InvalidRequest(e.to_string()),
+                _ => remote_transport::NetworkTransportError::ReceiveFailed(e.to_string()),
+            })
+        })
+    }
+    fn close(&mut self) { LoopbackTcp::close(self); }
+}

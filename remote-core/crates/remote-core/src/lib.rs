@@ -123,6 +123,22 @@ impl<B: InputBackend> HostInputSession<B> {
     ) -> Result<(), video::VideoError> {
         sender.send_packed(&self.session, transport, display, pixels, stride, format, pts_ms, deadline).await
     }
+    /// Send a frame over a network-oriented transport using this session.
+    /// An interrupted send may have reached the peer and requires encoder reset.
+    /// Network authentication and binding remain the caller's responsibility.
+    pub async fn send_video_network(
+        &mut self,
+        sender: &mut video::VideoSender,
+        transport: &mut dyn remote_transport::NetworkTransport,
+        display: i32,
+        pixels: &[u8],
+        stride: usize,
+        format: remote_codec::PackedFormat,
+        pts_ms: i64,
+        deadline: std::time::Duration,
+    ) -> Result<(), video::VideoError> {
+        sender.send_packed_network(&self.session, transport, display, pixels, stride, format, pts_ms, deadline).await
+    }
     /// Move the mouse in virtual-desktop coordinates, after authorization.
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<(), HostInputError> {
         self.session.check(Action::ControlMouse)?;
@@ -210,6 +226,8 @@ pub mod video {
         Protocol(ProtocolError),
         /// Message transport failed.
         Transport(TransportError),
+        /// Network transport failed; send delivery may be indeterminate.
+        Network(remote_transport::NetworkTransportError),
         /// The codec requires resetting before another frame can be sent.
         EncoderResetRequired,
         /// The wire codec is not supported by this software decoder.
@@ -224,6 +242,7 @@ pub mod video {
                 Self::Codec(e) => write!(f, "codec: {e}"),
                 Self::Protocol(e) => write!(f, "protocol: {e}"),
                 Self::Transport(e) => write!(f, "transport: {e}"),
+                Self::Network(e) => write!(f, "network: {e}"),
                 Self::EncoderResetRequired => f.write_str("encoder must be reset"),
                 Self::UnsupportedCodec => f.write_str("unsupported video codec"),
                 Self::CodecMismatch => f.write_str("received video codec differs from configured decoder"),
@@ -235,6 +254,7 @@ pub mod video {
     impl From<io::Error> for VideoError { fn from(e: io::Error) -> Self { Self::Codec(e) } }
     impl From<ProtocolError> for VideoError { fn from(e: ProtocolError) -> Self { Self::Protocol(e) } }
     impl From<TransportError> for VideoError { fn from(e: TransportError) -> Self { Self::Transport(e) } }
+    impl From<remote_transport::NetworkTransportError> for VideoError { fn from(e: remote_transport::NetworkTransportError) -> Self { Self::Network(e) } }
 
     fn wire_codec(codec: Codec) -> VideoCodec {
         match codec { Codec::Vp8 => VideoCodec::Vp8, Codec::Vp9 => VideoCodec::Vp9, Codec::Av1 => VideoCodec::Av1 }
@@ -305,6 +325,37 @@ pub mod video {
         }
     }
 
+    impl VideoSender {
+        /// Send one encoded frame over a network transport with indeterminate
+        /// delivery on failure. Failed/cancelled sends require encoder reset and
+        /// explicit decoder resynchronization; they must not be replayed blindly.
+        pub async fn send_packed_network(
+            &mut self,
+            session: &Session,
+            transport: &mut dyn remote_transport::NetworkTransport,
+            display: i32,
+            pixels: &[u8],
+            stride: usize,
+            format: PackedFormat,
+            pts_ms: i64,
+            deadline: Duration,
+        ) -> Result<(), VideoError> {
+            if session.state() != SessionState::Streaming {
+                return Err(VideoError::Session(SessionError::InvalidState { state: session.state(), operation: "send video" }));
+            }
+            session.check(Action::ViewScreen)?;
+            let mut encoder = self.encoder.take().ok_or(VideoError::EncoderResetRequired)?;
+            let encoded = encoder.encode_packed(pixels, stride, format, pts_ms)?;
+            let packets: Vec<OwnedVideoPacket> = encoded.packets.into_iter().map(|packet| OwnedVideoPacket {
+                data: packet.data, key: packet.key, pts: packet.pts,
+            }).collect();
+            let wire = Envelope::video_event(display, wire_codec(self.config.codec), &packets)?.encode(self.max_envelope_bytes)?;
+            transport.send(&wire, deadline).await?;
+            self.encoder = Some(encoder);
+            Ok(())
+        }
+    }
+
     /// Decoded output together with its source display index.
     pub struct VideoImage<'a> {
         /// Source display index carried by the RustDesk envelope.
@@ -344,6 +395,12 @@ pub mod video {
             }).collect();
             let encoded = EncodedFrame { codec, packets };
             Ok(self.decoder.decode(&encoded)?.map(|frame| VideoImage { display, frame }))
+        }
+        /// Receive and decode a video envelope from a network-oriented stream.
+        /// This does not authenticate the stream or harden the native decoder.
+        pub async fn receive_network(&mut self, transport: &mut dyn remote_transport::NetworkTransport, deadline: Duration) -> Result<Option<VideoImage<'_>>, VideoError> {
+            let bytes = transport.receive(deadline).await?;
+            self.decode(&bytes)
         }
         /// Receive and decode a single video envelope from a transport.
         /// A non-video message returns a protocol error; demultiplexing and

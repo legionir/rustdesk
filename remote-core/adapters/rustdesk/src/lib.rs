@@ -148,3 +148,25 @@ impl LoopbackWebSocket {
 
 /// Loopback-only TCP adapter using RustDesk's existing framed stream.
 pub mod tcp;
+
+impl remote_transport::NetworkTransport for LoopbackWebSocket {
+    fn send<'a>(&'a mut self, bytes: &'a [u8], deadline: Duration) -> remote_transport::TransportFuture<'a, Result<(), remote_transport::NetworkTransportError>> {
+        Box::pin(async move {
+            LoopbackWebSocket::send(self, bytes, deadline).await.map_err(|e| match e {
+                WebSocketError::Closed => remote_transport::NetworkTransportError::Closed,
+                WebSocketError::InvalidTimeout | WebSocketError::MessageTooLarge { .. } => remote_transport::NetworkTransportError::InvalidRequest(e.to_string()),
+                _ => remote_transport::NetworkTransportError::SendOutcomeUnknown(e.to_string()),
+            })
+        })
+    }
+    fn receive(&mut self, deadline: Duration) -> remote_transport::TransportFuture<'_, Result<Box<[u8]>, remote_transport::NetworkTransportError>> {
+        Box::pin(async move {
+            LoopbackWebSocket::receive(self, deadline).await.map(Vec::into_boxed_slice).map_err(|e| match e {
+                WebSocketError::Closed => remote_transport::NetworkTransportError::Closed,
+                WebSocketError::InvalidTimeout => remote_transport::NetworkTransportError::InvalidRequest(e.to_string()),
+                _ => remote_transport::NetworkTransportError::ReceiveFailed(e.to_string()),
+            })
+        })
+    }
+    fn close(&mut self) { LoopbackWebSocket::close(self); }
+}
