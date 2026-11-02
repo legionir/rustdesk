@@ -16,10 +16,12 @@ the server or cryptographically bind to a TLS channel. The verifier keeps a
 password-derived secret in memory and uses best-effort zeroization, not a
 proof all copies or SHA internals are wiped. Use only strong passwords over an
 authenticated encrypted channel. The existing RustDesk WebSocket wrapper is
-loopback-only and is not that channel. Do not expose this prototype to the
-internet or enable remote input based on this adapter alone.
+loopback-only and is not that channel. A separate experimental strict WSS client
+validates its endpoint, but does not authenticate a desktop peer behind a relay
+or implement RustDesk's end-to-end handshake. Do not expose this prototype to
+the internet or enable remote input based on these adapters alone.
 
-Missing: secure transport and peer binding; trusted consent UX; permission
+Missing: end-to-end secure transport and peer binding; trusted consent UX; permission
 revocation across running tasks; session-ID generation and persistent replay
 controls; brute-force/connection limits; credentials storage and rotation;
 expiry policy across process restarts; RustDesk 2FA and trusted-device behavior;

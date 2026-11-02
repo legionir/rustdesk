@@ -480,3 +480,57 @@ pub struct VideoPacket<'a> {
     /// Presentation timestamp in the source protocol's units.
     pub pts: i64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn decoder_advertisement_round_trips_existing_schema() {
+        let envelope = Envelope::supported_decoding_event(DecodingAdvertisement {
+            vp8: true, vp9: true, av1: false, h264: true, h265: false, preference: CodecPreference::H264,
+        });
+        let bytes = envelope.encode(4096).unwrap();
+        let parsed = Envelope::decode(&bytes, 4096).unwrap();
+        let caps = parsed.supported_decoding().unwrap();
+        assert_eq!((caps.vp8, caps.vp9, caps.av1, caps.h264, caps.h265), (1, 1, 0, 1, 0));
+        assert_eq!(caps.preference, 2);
+        assert!(caps.i444.is_none());
+        assert_eq!(parsed.encode(4096).unwrap(), bytes);
+    }
+    #[test]
+    fn source_supported_encoding_and_chroma_are_preserved() {
+        let mut misc = message_proto::Misc::new();
+        misc.set_supported_encoding(message_proto::SupportedEncoding {
+            vp8: true, h264: true, h265: false, av1: false,
+            i444: Some(message_proto::CodecAbility { h264: true, ..Default::default() }).into(),
+            ..Default::default()
+        });
+        let mut message = Message::new(); message.set_misc(misc);
+        let parsed = Envelope::decode(&message.write_to_bytes().unwrap(), 4096).unwrap();
+        let caps = parsed.supported_encoding().unwrap();
+        assert!(caps.vp8 && caps.h264 && !caps.h265);
+        assert!(caps.i444.unwrap().h264);
+    }
+    #[test]
+    fn password_challenge_and_basic_login_round_trip() {
+        let challenge = Envelope::password_challenge_event("public-salt", "one-time-challenge").unwrap();
+        let wire = challenge.encode(4096).unwrap();
+        let parsed = Envelope::decode(&wire, 4096).unwrap();
+        let view = parsed.password_challenge().unwrap();
+        assert_eq!((view.salt, view.challenge), ("public-salt", "one-time-challenge"));
+        let response = [9u8; 32];
+        let login = Envelope::desktop_login_event(DesktopLogin { username: "host", peer_id: "viewer", peer_name: "display", password_response: &response, session_id: 42, version: "1" }).unwrap();
+        let wire = login.encode(4096).unwrap();
+        let parsed = Envelope::decode(&wire, 4096).unwrap();
+        let view = parsed.desktop_login().unwrap();
+        assert_eq!((view.username, view.peer_id, view.session_id), ("host", "viewer", 42));
+        assert_eq!(view.password_response, &response);
+    }
+    #[test]
+    fn rejects_oversize_and_non_video_inspection() {
+        let mouse = Envelope::mouse_event(MouseEvent { mask: 0, x: -1, y: 1 });
+        assert!(matches!(mouse.video(), Err(ProtocolError::UnexpectedMessage)));
+        assert!(matches!(mouse.encode(1), Err(ProtocolError::TooLarge { .. })));
+        assert!(matches!(Envelope::decode(&[0; 4097], 4096), Err(ProtocolError::TooLarge { .. })));
+    }
+}

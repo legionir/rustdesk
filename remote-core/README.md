@@ -109,8 +109,9 @@ they are not yet security-reviewed or verified as a complete host/viewer.
 
 `remote-session` adds a bounded in-memory session registry, lifecycle states,
 explicit authentication and owner-authorization interfaces, per-action
-permission checks, and retryable resource shutdown. It does **not** implement
-an authenticator, credential storage, owner approval UI, secure ID generation,
+permission checks, and retryable resource shutdown. A separate experimental
+password-challenge verifier exists, but the session crate does **not** implement
+credential storage, owner approval UI, secure ID generation,
 transport binding, heartbeat, timers or actual streaming orchestration. The
 session manager remembers used IDs only for its process lifetime and is not a
 replay defense. Dispatchers must enforce `Session::check` at every input and
@@ -124,7 +125,8 @@ its own permissions. Revocation attempts to release held inputs; close attempts
 both input and session cleanup. This is not the final facade or a full remote
 host: trusted authentication/consent providers, transport binding, global
 exclusive input arbitration, capture/streaming orchestration, and validation
-remain required. This integration has not yet been built or tested.
+remain required. A cooperative input arbiter is available but cannot exclude unguarded input
+paths or other processes. This integration has not yet been built or tested.
 
 ## RustDesk protocol adapter
 
