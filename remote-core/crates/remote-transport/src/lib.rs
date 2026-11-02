@@ -255,3 +255,15 @@ mod tests {
         transport.close();
     }
 }
+
+/// Optional transport capability for changing an actual framing-layer limit.
+///
+/// The implementation must enforce the new bound before allocating a complete
+/// incoming frame, not merely check after receiving. Changing a limit cannot
+/// retroactively remove already buffered bytes or bound all backend overhead.
+/// Callers should raise limits only after all required authorization succeeds.
+pub trait AdjustableNetworkTransport: NetworkTransport {
+    /// Change both the outgoing and framing-layer incoming message bound.
+    /// No operation may be in flight. Failure must not silently raise the limit.
+    fn set_max_message_size(&mut self, maximum: usize) -> Result<(), NetworkTransportError>;
+}

@@ -73,3 +73,13 @@ guard cannot prevent unrelated code from bypassing it. Capability claims are
 not authenticated or runtime proof, hardware initialization can fail, and the
 source's VP9 fallback is not a capability guarantee. Adapter and tests are
 unbuilt and unrun.
+
+A provisional `AdjustableNetworkTransport` capability can change a real
+framing-layer message bound. Loopback TCP implements it using the source
+`BytesCodec`, and `EncryptedTransport` adds secretbox tag overhead. The host
+connection exposes raising the bound only after its password and owner-policy
+steps succeed. This is not a process memory bound, cannot clear already
+buffered data and is untested; WSS currently has no adjustable implementation.
+Callers must apply a pre-auth framing cap before the identity handshake and
+retain admission until all approval completes. No network-facing TCP listener
+is provided by this prototype.

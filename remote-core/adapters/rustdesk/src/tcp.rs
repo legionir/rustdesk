@@ -197,3 +197,15 @@ impl remote_transport::NetworkTransport for LoopbackTcp {
     }
     fn close(&mut self) { LoopbackTcp::close(self); }
 }
+
+impl remote_transport::AdjustableNetworkTransport for LoopbackTcp {
+    fn set_max_message_size(&mut self, maximum: usize) -> Result<(), remote_transport::NetworkTransportError> {
+        if maximum == 0 || maximum > MAX_MESSAGE_BYTES {
+            return Err(remote_transport::NetworkTransportError::InvalidRequest("invalid TCP message limit".into()));
+        }
+        let stream = self.stream.as_mut().ok_or(remote_transport::NetworkTransportError::Closed)?;
+        stream.codec_mut().set_max_packet_length(maximum);
+        self.max_message_size = maximum;
+        Ok(())
+    }
+}

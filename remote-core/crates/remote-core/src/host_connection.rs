@@ -325,3 +325,19 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
 impl<T: NetworkTransport, B: InputBackend> Drop for HostConnection<T, B> {
     fn drop(&mut self) { let _ = self.close(); }
 }
+
+impl<T: remote_transport::AdjustableNetworkTransport, B: InputBackend> HostConnection<T, B> {
+    /// Adjust the actual transport framing limit after password and owner
+    /// approval have both succeeded. Call before requesting larger video frames.
+    /// This is not a global allocation limit and does not establish peer trust.
+    /// A backend without adjustable framing, such as the current strict WSS
+    /// adapter, does not offer this method.
+    pub fn set_authorized_message_limit(&mut self, maximum: usize) -> Result<(), ConnectionError> {
+        if !matches!(self.phase, Phase::Approved | Phase::Authorized) || maximum == 0 || maximum > MAX_ENVELOPE_BYTES {
+            return Err(ConnectionError::InvalidState);
+        }
+        self.transport.set_max_message_size(maximum)?;
+        self.max_post_auth_bytes = maximum;
+        Ok(())
+    }
+}

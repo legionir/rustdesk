@@ -213,3 +213,16 @@ pub async fn connect_pinned_host<T: NetworkTransport>(transport: T, expected_hos
     guard.inner().send(&serialize(&envelope)?, remaining(end)?).await?;
     Ok(EncryptedTransport::new(guard.take(), cipher, max_plaintext))
 }
+
+impl<T: remote_transport::AdjustableNetworkTransport> remote_transport::AdjustableNetworkTransport for EncryptedTransport<T> {
+    fn set_max_message_size(&mut self, maximum: usize) -> Result<(), NetworkTransportError> {
+        if self.cipher.is_none() { return Err(NetworkTransportError::Closed); }
+        if maximum == 0 || maximum > MAX_PLAINTEXT_BYTES {
+            return Err(NetworkTransportError::InvalidRequest("invalid encrypted plaintext limit".into()));
+        }
+        // The underlying framed size must include the source secretbox tag.
+        self.inner.set_max_message_size(maximum + secretbox::MACBYTES)?;
+        self.max_plaintext = maximum;
+        Ok(())
+    }
+}
