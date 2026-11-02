@@ -1,6 +1,6 @@
 //! Written for later execution. Synthetic input over loopback, no real desktop.
 use remote_core::host_connection::HostConnection;
-use remote_input::{InputBackend, MouseButton, VirtualKey};
+use remote_input::{InputBackend, MouseButton, ScanCode, VirtualKey};
 use remote_protocol::{DesktopLogin, Envelope, MouseEvent};
 use remote_rustdesk_websocket::tcp::{LoopbackTcp, LoopbackTcpListener};
 use remote_security::{admission::{AdmissionController, AdmissionLimits}, password_response, OwnerApproval, PasswordChallenge, PasswordVerifier};
@@ -19,6 +19,8 @@ impl InputBackend for Fake {
     fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
     fn key_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
     fn key_up(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+    fn scan_down(&mut self, key: ScanCode) -> io::Result<()> { self.0.lock().unwrap().push(format!("scan-down:{}", key.code())); Ok(()) }
+    fn scan_up(&mut self, key: ScanCode) -> io::Result<()> { self.0.lock().unwrap().push(format!("scan-up:{}", key.code())); Ok(()) }
 }
 async fn sockets() -> (LoopbackTcp, LoopbackTcp) {
     let listener = LoopbackTcpListener::bind("127.0.0.1:0".parse().unwrap(), LIMIT, WAIT).await.unwrap();
@@ -141,7 +143,7 @@ async fn strict_pinned_exchange_then_password_approval_and_input() {
     let mut host = HostConnection::new(host_socket.unwrap(), id, fake, verifier, permit, LIMIT - 16).unwrap();
     let mut viewer = ViewerConnection::new(viewer_socket.unwrap(), LIMIT - 16).unwrap();
     let identity = LoginIdentity { target: "expected-host".into(), viewer_id: "unverified".into(), viewer_name: "viewer".into(), wire_session_id: 10, version: "test".into() };
-    let perms = Permissions { control_mouse: true, ..Default::default() };
+    let perms = Permissions { control_mouse: true, control_keyboard: true, ..Default::default() };
     let info = PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
     assert!(host.set_authorized_message_limit(256 * 1024).is_err());
     let (server, client) = tokio::join!(async {
@@ -157,7 +159,13 @@ async fn strict_pinned_exchange_then_password_approval_and_input() {
     let (sent, received) = tokio::join!(viewer.send_input(&mouse, WAIT), host.receive_input(WAIT));
     sent.unwrap(); received.unwrap();
     assert_eq!(&*calls.lock().unwrap(), &["move:7,-4"]);
+    host.set_windows_scan_mode_enabled(true).unwrap();
+    let scan = Envelope::windows_scan_event(0xe01d, true).unwrap();
+    let (sent, received) = tokio::join!(viewer.send_input(&scan, WAIT), host.receive_event(WAIT));
+    sent.unwrap(); received.unwrap();
+    assert!(host.set_windows_scan_mode_enabled(false).is_err());
     viewer.close(); host.close().unwrap();
+    assert_eq!(&*calls.lock().unwrap(), &["move:7,-4", "scan-down:57373", "scan-up:57373"]);
 }
 
 #[cfg(feature = "source-security")]
