@@ -117,3 +117,11 @@ correctly or match the full source behavior. Its mouse path requires *both*
 mouse and keyboard permissions, unlike the default provisional dispatcher.
 `HostConnection` leaves it off unless explicitly enabled; disabling it does not
 release keys. Cleanup/revocation is required. Cases are written but not run.
+
+The experimental `display_control` module exposes source `SwitchDisplay` and
+`CaptureDisplays` subsets; it does not change resolution or capture by itself.
+Incoming host requests require both view and change-display grants. The Node
+loopback host grants only view, so it does not implement switching. Source
+subscription precedence is add, then sub, otherwise set; empty set can stop all
+subscriptions. Always validate indices against a current authorized snapshot;
+retaining the original envelope does not make peer data trustworthy.

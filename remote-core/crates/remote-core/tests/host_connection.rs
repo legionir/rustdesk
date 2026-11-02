@@ -243,7 +243,7 @@ async fn video_controls_reach_authorized_scheduler_but_are_not_executed() {
     let mut host = HostConnection::new(socket, id, Fake::default(), verifier, permit, LIMIT).unwrap();
     let mut viewer = ViewerConnection::new(viewer_socket, LIMIT).unwrap();
     let identity = LoginIdentity { target: "host".into(), viewer_id: "v".into(), viewer_name: "v".into(), wire_session_id: 13, version: "test".into() };
-    let permissions = Permissions { view_screen: true, ..Default::default() };
+    let permissions = Permissions { view_screen: true, change_display: true, ..Default::default() };
     let capabilities = DecodingAdvertisement { vp8: true, vp9: false, av1: false, h264: false, h265: false, preference: CodecPreference::Vp8 };
     assert!(host.take_initial_decoding_advertisement().is_err());
     let info = PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
@@ -273,6 +273,26 @@ async fn video_controls_reach_authorized_scheduler_but_are_not_executed() {
     let (sent, received) = tokio::join!(viewer.request_cursor_shape(u64::MAX, WAIT), host.receive_event(WAIT));
     sent.unwrap(); assert_eq!(received.unwrap(), HostEvent::CursorShapeRequest(u64::MAX));
     assert!(!host.send_cached_cursor(u64::MAX, WAIT).await.unwrap());
+    use remote_protocol::display_control::{CaptureDisplays, DisplaySwitch};
+    use remote_core::viewer_connection::ViewerEvent;
+    let switch = DisplaySwitch { display: 1, x: 0, y: 0, width: 0, height: 0, cursor_embedded: false };
+    let event = Envelope::display_switch_event(&switch).unwrap();
+    let (sent, received) = tokio::join!(viewer.send_display_control(&event, WAIT), host.receive_event(WAIT));
+    sent.unwrap(); match received.unwrap() {
+        HostEvent::DisplaySwitchRequest { value, envelope } => {
+            assert_eq!(value, switch); assert_eq!(Envelope::decode(&envelope, LIMIT).unwrap().display_switch().unwrap(), switch);
+        }, _ => panic!("expected switch request"),
+    }
+    let request = CaptureDisplays { add: vec![0, 1], sub: vec![], set: vec![] };
+    let event = Envelope::capture_displays_event(&request).unwrap();
+    let (sent, received) = tokio::join!(viewer.send_display_control(&event, WAIT), host.receive_event(WAIT));
+    sent.unwrap(); assert!(matches!(received.unwrap(), HostEvent::CaptureDisplaysRequest { value, .. } if value == request));
+    let notice = DisplaySwitch { display: 1, x: -1920, y: 0, width: 1920, height: 1080, cursor_embedded: false };
+    let (sent, received) = tokio::join!(host.send_display_change(&notice, WAIT), viewer.receive(WAIT));
+    sent.unwrap(); assert!(matches!(received.unwrap(), ViewerEvent::DisplayChanged { value, .. } if value == notice));
+    host.restrict_permissions(Permissions { view_screen: true, ..Default::default() }).unwrap();
+    let (sent, received) = tokio::join!(viewer.send_display_control(&event, WAIT), host.receive_event(WAIT));
+    sent.unwrap(); assert!(received.is_err());
     host.restrict_permissions(Permissions::default()).unwrap();
     let (sent, received) = tokio::join!(viewer.send_video_control(VideoControl::RefreshAll, WAIT), host.receive_event(WAIT));
     sent.unwrap(); assert!(received.is_err());

@@ -111,3 +111,21 @@ rotation, software fallback, decoding, interoperability and performance remain
 unverified; native allocations precede output-size checks. The source encoder's
 VRAM quality setter can hide driver errors. This is not a complete source video
 service, a tested Windows implementation, or a safe untrusted decoder.
+
+### Display switch and multi-display subscription increment (unverified)
+
+The source uses `Misc.SwitchDisplay` in both directions and
+`Misc.CaptureDisplays` for subscription changes (`connection.rs` and
+`video_service.rs`). The prototype now reads/writes bounded subsets, exposes
+request events only with both local view and change-display permissions, and
+preserves the original bounded wire envelope. The viewer exposes display
+announcements and can send requests; the Node host remains view-only and does
+not accept these requests. A caller-driven planner follows source add > sub >
+set precedence, but rejects any invalid/offline index rather than silently
+filtering, and treats an empty set as unsubscribe all. It returns start/stop
+plans without performing them. Applications must supply actual current display
+state, authorize each change, coordinate capturers/encoders and enforce resource
+limits. Indices are not stable identities and hotplug requires revalidation.
+OS resolution changes, multi-stream scheduling, atomic rollback, virtual
+monitors, source resolution metadata construction, source compatibility and
+real Windows multi-monitor capture remain incomplete and untested.
