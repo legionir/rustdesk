@@ -29,3 +29,12 @@ using the same session and view-screen capability used for input checks. It
 does not start capture itself, own the transport/encoder, or cancel separate
 tasks when permissions are revoked. The integration is experimental and has
 not yet been built or tested.
+
+`input_arbiter::InputArbiter` optionally serializes cooperating in-process
+controllers. It attaches only connected sessions with input permission, keeps
+the lease while cleanup is retried, and quarantines the arbiter after an
+unrecoverable detectable cleanup failure until a trusted operator acknowledges
+manual OS recovery. It is not a global or cross-process lock: other input
+paths, unguarded sessions, upstream RustDesk, processes and human input bypass
+it. Windows Enigo cannot report every SendInput failure. The arbiter has fake
+backend tests, not yet run, and is not a security boundary or production proof.

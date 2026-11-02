@@ -5,6 +5,9 @@
 //! capture task orchestration. It must not be exposed to untrusted peers until
 //! those layers and OS-level authorization have been reviewed and tested.
 
+/// Optional single-controller arbitration within a cooperating process.
+pub mod input_arbiter;
+
 use std::{error::Error, fmt};
 use remote_input::{InputBackend, InputController, InputError, MouseButton, VirtualKey};
 use remote_session::{Action, Authenticator, Authorizer, Credential, Permissions, Session, SessionError, SessionId, SessionState};
