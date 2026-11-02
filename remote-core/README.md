@@ -256,3 +256,21 @@ extraction and review:
 ```powershell
 cargo run --manifest-path remote-core/Cargo.toml -p remote-core --example windows_loopback_session -- --confirm-local-screen-capture
 ```
+
+### Experimental multi-display example (not built or run)
+
+On an authorized disposable Windows desktop with at least two displays, the
+following manual example captures and locally decodes one VP9 frame from each
+of the first two displays. It uses a temporary loopback-only key and demo
+password and reads real private screen contents; do not run without the local
+user's consent. Successful compilation would not prove GPU, hotplug, secure
+Desktop/UAC, production security or RustDesk interoperability.
+
+```sh
+cargo run --manifest-path remote-core/Cargo.toml -p remote-core --example windows_multi_display -- --confirm-local-screen-capture
+```
+
+`MultiCapture`, display subscription planning and per-display timing/recovery
+are separate caller-driven experimental pieces. They do not automatically
+follow display changes, schedule captures, coordinate decoder recreation or
+provide an owner-consent UI. See `../docs/analysis/remaining-core-work.md`.

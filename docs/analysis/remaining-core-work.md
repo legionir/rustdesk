@@ -54,8 +54,8 @@ unbuilt and untested by request; do not use the current prototype as a product.
 ## Node, packaging and validation
 
 - Node exposes local single-frame capture/encode, cursor wire conversion and a
-  narrow pinned TCP/WSS viewer and a loopback-only, view-only single-frame host
-  with serialized operations. It has no general network host API, decoded video
+  narrow pinned TCP/WSS viewer and a loopback-only, view-only host with
+  serialized single-frame or short bounded burst operations. It has no general network host API, decoded video
   renderer, complete keyboard/input semantics, durable credentials or
   production-safe consent. Native decoder allocation is
   not bounded by compressed message size.

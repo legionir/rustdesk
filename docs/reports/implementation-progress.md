@@ -168,3 +168,21 @@ VRAM capture/encoder adapter and session-bound sender expose source H.264/H.265
 texture encoding only under the `vram` feature. Both increments and their tests
 have not been built or executed. See the remaining-work analysis for exact
 source differences, native-resource assumptions and security limitations.
+
+## Display, input and login bookkeeping increment (deferred validation)
+
+The provisional protocol now exposes source display switching, multi-display
+subscription, resolution requests, metadata queries and cursor-follow hints.
+A local permission guard returns requests to the embedding application rather
+than automatically changing OS state. `MultiCapture` groups software capture
+streams under one session; separate bounded cadence, subscription-plan and
+viewer keyframe-state helpers remain caller-driven. A two-monitor Windows
+loopback example has been written, but it has not been compiled or run.
+
+The Windows mouse dispatcher now maps source trackpad wheel units and the
+Enigo adapter emits vertical before horizontal scrolling. An optional source
+password-failure counter module reproduces source address and IPv6 prefix
+threshold bookkeeping but is not wired into login: address attribution, shared
+prefix resets, capacity exhaustion, concurrent attempts and audit require an
+explicit security decision. These increments have not been built, tested or
+reviewed and do not complete extraction or establish a production-ready SDK.
