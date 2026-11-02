@@ -138,3 +138,12 @@ can return these claims, refresh requests and frame-received notifications to
 the caller. They are untrusted, not acted on automatically, and must be
 validated/rate-limited. Calls are serialized, so receiving cannot overlap a
 capture/send on the same host session. A receive timeout closes the session.
+
+`connectWssViewer` uses strict certificate-validated WSS plus the separate
+pinned source host exchange, and returns the same serialized viewer API. The
+configured WSS endpoint can target arbitrary network hosts: **SSRF filtering is
+not implemented**. Credentials, query strings, fragments, proxies and custom
+root stores are not supported. This does not provide a WSS server, configure or
+authenticate a relay route, or verify Cloudflare compatibility. TLS validates
+the WSS endpoint; the separately pinned exchange is intended to identify the
+host behind it. This code and its validation cases have not been built or run.

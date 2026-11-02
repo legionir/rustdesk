@@ -85,6 +85,10 @@ export class Viewer {
 }
 /** Source v1 host key pinning; this is untested, not a production security guarantee. */
 export function connectViewer(options: ViewerOptions): Promise<Viewer>;
+/** WSS endpoint policy does not prevent SSRF; use only trusted endpoints. */
+export interface WssViewerOptions extends Omit<ViewerOptions, 'address'> { endpoint: string }
+/** TLS validates the relay/server, while the host key is independently pinned. */
+export function connectWssViewer(options: WssViewerOptions): Promise<Viewer>;
 
 /** Loopback-only, view-only prototype. The host pin is ephemeral per listener. */
 export interface LocalHostOptions { hostId: string; password: string; timeoutMs: number }

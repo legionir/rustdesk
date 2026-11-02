@@ -1,5 +1,8 @@
 # Transport status — provisional
 
+> This document records successive increments. Later sections supersede early
+> statements that all adapters are loopback-only or lack WSS; none is verified.
+
 `remote-transport` supplies a bounded in-process transport and an object-safe
 interface. `remote-rustdesk-websocket` wraps the existing pinned
 `hbb_common::websocket::WsFramedStream`, not a new WebSocket implementation.
@@ -79,10 +82,10 @@ framing-layer message bound. Loopback TCP implements it using the source
 `BytesCodec`, and `EncryptedTransport` adds secretbox tag overhead. The host
 connection exposes raising the bound only after its password and owner-policy
 steps succeed. This is not a process memory bound, cannot clear already
-buffered data and is untested; WSS currently has no adjustable implementation.
+buffered data and is untested. Strict WSS now adjusts tungstenite frame,
+message and write-buffer limits while idle; this has not been built or tested.
 Callers must apply a pre-auth framing cap before the identity handshake and
-retain admission until all approval completes. No network-facing TCP listener
-is provided by this prototype.
+retain admission until all approval completes. A separate direct TCP adapter described below can bind non-loopback addresses.
 
 `direct_tcp` is an additional explicit-opt-in direct TCP listener/connector
 using the same RustDesk frame codec and dynamic frame limit; unlike the earlier
@@ -92,3 +95,8 @@ implement DNS, proxy or SSRF policy. The caller must admit the transport-observe
 peer address before handshake, apply reviewed encryption and trusted owner
 policy, and control address exposure. Neither its local synthetic case nor a
 real network deployment has been tested.
+
+The Node prototype can also use strict WSS with a separately pinned source host
+key. It has no relay/server configuration, endpoint SSRF policy, WSS host API
+or Cloudflare interoperability proof. Dynamic WSS framing, Node binding and
+all associated synthetic cases are unbuilt and untested.

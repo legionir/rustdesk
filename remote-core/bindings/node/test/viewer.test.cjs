@@ -15,3 +15,11 @@ test('rejects invalid viewer options before scheduling network work', () => {
   assert.throws(() => core.connectViewer({ ...base, maxMessageBytes: 0 }));
   assert.throws(() => core.connectViewer({ ...base, timeoutMs: 0 }));
 });
+
+test('rejects invalid WSS options before scheduling network work', () => {
+  const { address, ...rest } = base;
+  assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'ws://example.com/' }));
+  assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'wss://user:password@example.com/' }));
+  assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'wss://example.com/?token=secret' }));
+  assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'wss://example.com/', hostSigningKey: Buffer.alloc(31) }));
+});
