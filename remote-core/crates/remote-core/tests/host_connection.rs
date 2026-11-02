@@ -202,7 +202,7 @@ async fn cancelled_pre_auth_handshake_closes_socket_and_releases_permit() {
 async fn video_controls_reach_authorized_scheduler_but_are_not_executed() {
     use remote_core::host_connection::HostEvent;
     use remote_core::viewer_connection::{LoginIdentity, ViewerConnection};
-    use remote_protocol::{desktop::PeerInfo, video_control::VideoControl};
+    use remote_protocol::{desktop::PeerInfo, video_control::VideoControl, CodecPreference, DecodingAdvertisement};
     let (socket, viewer_socket) = sockets().await;
     let admission = AdmissionController::new(AdmissionLimits::default()).unwrap();
     let permit = admission.admit("127.0.0.1".parse().unwrap()).unwrap();
@@ -213,16 +213,31 @@ async fn video_controls_reach_authorized_scheduler_but_are_not_executed() {
     let mut viewer = ViewerConnection::new(viewer_socket, LIMIT).unwrap();
     let identity = LoginIdentity { target: "host".into(), viewer_id: "v".into(), viewer_name: "v".into(), wire_session_id: 13, version: "test".into() };
     let permissions = Permissions { view_screen: true, ..Default::default() };
+    let capabilities = DecodingAdvertisement { vp8: true, vp9: false, av1: false, h264: false, h265: false, preference: CodecPreference::Vp8 };
+    assert!(host.take_initial_decoding_advertisement().is_err());
     let info = PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
     let (_, login) = tokio::join!(async {
         host.receive_password_login(WAIT).await.unwrap();
         host.authorize(permissions, &mut OwnerApproval::new(id, principal, Some(permissions))).unwrap();
+        let initial = host.take_initial_decoding_advertisement().unwrap().unwrap();
+        assert_eq!(initial.supported_decoding().unwrap().vp8, 1);
+        assert!(initial.desktop_login().is_err());
+        assert!(host.take_initial_decoding_advertisement().unwrap().is_none());
         host.send_login_success(&info, WAIT).await.unwrap();
-    }, viewer.login(&identity, "test", WAIT));
+    }, viewer.login_with_decoding(&identity, "test", capabilities, WAIT));
     login.unwrap();
     for control in [VideoControl::RefreshAll, VideoControl::RefreshDisplay(3), VideoControl::FrameReceived] {
         let (sent, received) = tokio::join!(viewer.send_video_control(control, WAIT), host.receive_event(WAIT));
         sent.unwrap(); assert_eq!(received.unwrap(), HostEvent::VideoControl(control));
+    }
+    let (sent, received) = tokio::join!(viewer.send_decoding_advertisement(capabilities, WAIT), host.receive_event(WAIT));
+    sent.unwrap();
+    match received.unwrap() {
+        HostEvent::DecodingAdvertisement { values, envelope } => {
+            assert_eq!(values.vp8, 1);
+            assert_eq!(Envelope::decode(&envelope, LIMIT).unwrap().supported_decoding().unwrap(), values);
+        },
+        _ => panic!("expected decoding advertisement"),
     }
     host.restrict_permissions(Permissions::default()).unwrap();
     let (sent, received) = tokio::join!(viewer.send_video_control(VideoControl::RefreshAll, WAIT), host.receive_event(WAIT));

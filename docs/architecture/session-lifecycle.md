@@ -113,3 +113,13 @@ current display list, rate-limit requests and implement refresh/ACK scheduling.
 The legacy `receive_input` method consumes but rejects these controls; do not
 mix the two receive styles if video controls matter. These additions and the
 synthetic test are unbuilt and untested.
+
+Decoder capabilities may optionally be included in a viewer login or sent as
+an existing option after login. The host retains only a separate
+SupportedDecoding message—not the login's password-bearing envelope—and exposes
+it only after owner approval with screen-view permission. Later option updates
+are similarly returned to the caller as sanitized capability-only messages.
+This does not automatically invoke the process-global `SourceNegotiator`, prove
+any codec works, negotiate every source option, or start capture. Peer IDs,
+cleanup and exclusive ownership of upstream globals remain the caller's
+responsibility. The capability cases have not been built or run.

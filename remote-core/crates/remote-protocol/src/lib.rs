@@ -585,6 +585,18 @@ mod tests {
         assert_eq!(view.password_response, &response);
     }
     #[test]
+    fn decoding_extraction_excludes_login_credentials() {
+        let proof = [0x55; 32];
+        let mut login = Envelope::desktop_login_event(DesktopLogin { username: "host", peer_id: "viewer", peer_name: "viewer", password_response: &proof, session_id: 7, version: "test" }).unwrap();
+        login.set_login_decoding(DecodingAdvertisement { vp8: true, vp9: false, av1: false, h264: false, h265: false, preference: CodecPreference::Vp8 }).unwrap();
+        let extracted = login.extract_supported_decoding_event().unwrap();
+        assert_eq!(extracted.supported_decoding().unwrap().vp8, 1);
+        assert!(matches!(extracted.desktop_login(), Err(ProtocolError::UnexpectedMessage)));
+        let bytes = extracted.encode(4096).unwrap();
+        assert!(!bytes.windows(proof.len()).any(|part| part == proof));
+        assert!(matches!(Envelope::mouse_event(MouseEvent { mask: 0, x: 0, y: 0 }).set_login_decoding(DecodingAdvertisement { vp8: true, vp9: false, av1: false, h264: false, h265: false, preference: CodecPreference::Vp8 }), Err(ProtocolError::UnexpectedMessage)));
+    }
+    #[test]
     fn rejects_oversize_and_non_video_inspection() {
         let mouse = Envelope::mouse_event(MouseEvent { mask: 0, x: -1, y: 1 });
         assert!(matches!(mouse.video(), Err(ProtocolError::UnexpectedMessage)));
