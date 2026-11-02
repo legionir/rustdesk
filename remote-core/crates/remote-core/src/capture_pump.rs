@@ -220,6 +220,34 @@ fn validate_group_specs(specs: impl Iterator<Item = (i32, u32, u32)>) -> Result<
 #[cfg(test)]
 mod group_tests {
     use super::*;
+    struct NoInput;
+    impl remote_input::InputBackend for NoInput {
+        fn move_to(&mut self, _: i32, _: i32) -> std::io::Result<()> { Ok(()) }
+        fn mouse_down(&mut self, _: remote_input::MouseButton) -> std::io::Result<()> { Ok(()) }
+        fn mouse_up(&mut self, _: remote_input::MouseButton) -> std::io::Result<()> { Ok(()) }
+        fn scroll(&mut self, _: i32, _: i32) -> std::io::Result<()> { Ok(()) }
+        fn key_down(&mut self, _: remote_input::VirtualKey) -> std::io::Result<()> { Ok(()) }
+        fn key_up(&mut self, _: remote_input::VirtualKey) -> std::io::Result<()> { Ok(()) }
+    }
+    #[test]
+    fn permits_capture_cleanup_after_view_revocation() {
+        use remote_security::{password_response, OwnerApproval, PasswordVerifier};
+        use remote_session::{Credential, Permissions, Principal};
+        let id = SessionId::new([77; 16]).unwrap();
+        let principal = Principal::new("test".into()).unwrap();
+        let permissions = Permissions { view_screen: true, ..Default::default() };
+        let mut verifier = PasswordVerifier::new(id, principal.clone(), "test", "salt", Duration::from_secs(30)).unwrap();
+        let response = password_response("test", verifier.challenge()).unwrap();
+        let mut approval = OwnerApproval::new(id, principal, Some(permissions));
+        let mut host = HostInputSession::new(id, NoInput);
+        host.begin_connect().unwrap(); host.transport_connected().unwrap();
+        host.authenticate(Credential::new(response.as_bytes()), permissions, &mut verifier, &mut approval).unwrap();
+        assert!(finish_streaming(&mut host).is_err());
+        host.start_streaming().unwrap();
+        host.restrict_permissions(Permissions::default()).unwrap();
+        assert_eq!(host.state(), SessionState::Connected);
+        assert!(finish_streaming(&mut host).is_ok());
+    }
     #[test]
     fn rejects_duplicate_and_excess_pixel_specs_before_native_open() {
         assert!(validate_group_specs([(0, 1920, 1080), (1, 1920, 1080)].into_iter()).is_ok());
