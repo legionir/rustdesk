@@ -118,3 +118,21 @@ available separately, but source portable-service capture and actual cursor
 shapes are not extracted. A temporary Windows handle is not the upstream
 content-derived ID. Node cannot yet consume cursor events. All of this is
 unbuilt, untested, and not security audited.
+
+## Current host/viewer, cursor and Node extraction (not tested)
+
+This increment adds an explicit opt-in direct framed TCP adapter, source-v1
+signed key exchange with a caller-provided host signing-key pin, an encrypted
+transport wrapper, and caller-driven host/viewer password, authorization and
+message flows. Version 0/plaintext fallback is rejected by this new wrapper,
+a deliberate policy change requiring security review. This does not implement
+rendezvous trust, key provisioning, 2FA, complete peer compatibility or an
+audited internet-facing server. Synthetic host/viewer and tamper cases have
+been written but not run.
+
+Windows cursor shape capture and bounded BMP legacy text input were adapted
+from source paths; UAC/portable service, complete keyboard/IME, permissions and
+real input/cursor behavior remain unverified. The Node addon now exposes
+cursor-wire utilities and a narrow pinned direct-TCP viewer with compressed
+video events and mouse sends; it is not a complete SDK. All additions since
+local-transport CI remain unbuilt, untested and unaudited. No CI was triggered.

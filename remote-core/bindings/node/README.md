@@ -2,9 +2,11 @@
 
 This is a partial binding, not a Node remote desktop SDK. It currently exposes
 display enumeration, a single raw capture and single-frame software encoding
-using RustDesk adapters. It does not expose input injection, a session, networking,
-codec negotiation, secure transport or authentication. No binary is shipped.
-The API and build have not been tested.
+using RustDesk adapters. It also has an experimental, limited direct-TCP viewer
+with pinned source key exchange and basic password login. It does not expose a
+host server, trusted consent, codec negotiation, decoded video rendering or a
+complete input API. No binary is shipped. The API and build have not been tested
+or security-audited.
 
 Install the same Rust/native dependencies needed by the Rust workspace, then:
 
@@ -60,3 +62,25 @@ canonical decimal strings, since JS numbers cannot represent all RustDesk u64
 IDs. The 1 MiB raw and 2 MiB serialized checks exclude native zstd allocations,
 protobuf overhead, JS-held buffers and other callers. These additions and the
 synthetic cursor cases have not been built, tested or security audited.
+
+## Experimental direct TCP viewer
+
+`connectViewer(options)` connects to a literal IP:port, checks a caller-supplied
+32-byte host signing-key pin and host ID, runs the source version-1 split-key
+exchange and the basic password/login flow, then returns a `Viewer`. The host
+requires an independently configured owner policy. The caller must securely
+obtain and rotate the pin and ensure the remote end is trusted. This code is
+not audited; no rendezvous trust chain, WSS Node binding, TLS, 2FA, complete
+RustDesk compatibility, rate limiting or replay audit is provided. Do not use
+it with untrusted peers.
+
+`peerInfo()` returns a login snapshot; `sendMouse()` sends a limited wire event;
+`receive()` returns one event (video remains compressed in a RustDesk envelope).
+There is no keyboard API, video decoder or renderer yet. A viewer permits only
+one active operation at a time; therefore a long receive blocks input sends and
+a receive timeout closes the connection. Close explicitly when idle. At most
+eight viewer objects/tasks are retained by this addon, including explicitly
+closed objects until garbage collection. Other Node buffers, queued libuv tasks,
+native allocations and process resources are not bounded by this count. Password
+strings remain in JS memory and may have additional copies; do not log them.
+None of these APIs or their security guarantees has been built or tested.

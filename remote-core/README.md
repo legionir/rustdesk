@@ -8,7 +8,7 @@ submodule is `fae47e024dd83cef6aaecde0aa7d11731df11649`.
 
 The capture adapter enumerates displays and exposes borrowed CPU frames or a native
 texture handle. Input, codecs, session/security, loopback networking, provisional
-strict WSS and a partial Node binding are described below. They are incomplete,
+strict WSS, experimental pinned source encryption and a partial Node binding are described below. They are incomplete,
 not yet integrated into a secure remote desktop, and do not establish a complete
 multi-platform support contract.
 Texture interpretation remains platform-specific. `WouldBlock` and timeouts
@@ -238,3 +238,8 @@ capture display and software video sender, one caller-driven frame at a time.
 It is synchronous around native capture/encoding and can block the executor;
 run on an appropriate dedicated thread. It is not a host server, renderer,
 consent UI or authenticated transport. It has not been built or tested.
+
+The Node addon includes an experimental direct TCP viewer with strict pinned
+source-v1 exchange, basic password login, single-operation message reception
+and restricted mouse send. It does not render video or provide a complete input
+or host API. Its security and build are unverified; see `bindings/node/README.md`.
