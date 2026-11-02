@@ -61,15 +61,15 @@ test('opt-in interactive local screen host to viewer single frame',
       assert.equal(event.kind, 'video'); assert.equal(event.codec, 'vp9'); assert.ok(event.data.length > 0);
       // A burst keeps its encoder only for this call. Receive concurrently so
       // a bounded socket does not deadlock waiting for the peer to drain it.
-      const burstFrame = viewer.receive(30000); burstFrame.catch(() => {});
+      const burstFrame = viewer.receive(10000); burstFrame.catch(() => {});
       const burst = session.sendVp9Burst(0, true, 10, 1, 5000, 500, 5000);
       const count = await burst;
       if (count === 1) {
         const frame = await burstFrame;
         assert.equal(frame.kind, 'video'); assert.equal(frame.codec, 'vp9');
       } else {
-        // No changed frame was captured; closing the viewer cancels receive.
-        viewer.close(); await assert.rejects(burstFrame); viewer = null;
+        // No changed frame was captured; the receive deadline closes it.
+        await assert.rejects(burstFrame); viewer.close(); viewer = null;
       }
     } finally {
       if (viewer) viewer.close();
