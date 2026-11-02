@@ -5,6 +5,10 @@
 //! borrows the capturer until it is dropped. This crate currently depends on the
 //! RustDesk checkout and is not yet an independently distributable extraction.
 
+/// Experimental combined Windows DXGI capture and VRAM encoding.
+#[cfg(all(target_os = "windows", feature = "vram"))]
+pub mod vram;
+
 #[cfg(any(target_os = "windows", test))]
 mod cursor_pixels;
 #[cfg(target_os = "windows")]
