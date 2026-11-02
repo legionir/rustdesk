@@ -360,6 +360,7 @@ impl Envelope {
             Some(video_frame::Union::Rgb(_)) => (VideoCodec::Rgb, None),
             Some(video_frame::Union::Yuv(_)) => (VideoCodec::Yuv, None),
             None => return Err(ProtocolError::MissingMessage),
+            _ => return Err(ProtocolError::UnexpectedMessage),
         };
         if packets.map_or(false, |p| p.frames.len() > MAX_VIDEO_PACKETS) { return Err(ProtocolError::TooManyVideoPackets); }
         Ok(VideoFrame { display: frame.display, codec, packets })
@@ -467,6 +468,7 @@ impl<'a> KeyboardEvent<'a> {
             Union::Unicode(value) => Some(KeyboardPayload::Unicode(*value)),
             Union::Seq(value) => Some(KeyboardPayload::Sequence(value.as_str())),
             Union::Win2winHotkey(value) => Some(KeyboardPayload::WindowsHotkey(*value)),
+            _ => None,
         }
     }
 }

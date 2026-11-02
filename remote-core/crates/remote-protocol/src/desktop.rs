@@ -107,7 +107,7 @@ impl Envelope {
             Some(message_proto::login_response::Union::PeerInfo(info)) => Ok(LoginResult::Accepted(decode_peer(info)?)),
             Some(message_proto::login_response::Union::Error(error)) if valid_text(error) => Ok(LoginResult::Denied(error.clone())),
             Some(message_proto::login_response::Union::Error(_)) => Err(DesktopError::InvalidMetadata),
-            None => Err(DesktopError::UnexpectedMessage),
+            _ => Err(DesktopError::UnexpectedMessage),
         }
     }
     /// Inspect an existing standalone PeerInfo update.
