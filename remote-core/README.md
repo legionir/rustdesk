@@ -243,3 +243,12 @@ The Node addon includes an experimental direct TCP viewer with strict pinned
 source-v1 exchange, basic password login, single-operation message reception
 and restricted mouse send. It does not render video or provide a complete input
 or host API. Its security and build are unverified; see `bindings/node/README.md`.
+
+A further manual `windows_loopback_session` example composes the provisional
+direct TCP framing, pinned source-v1 key exchange, password/owner approval,
+capture pump and trusted local VP9 decode. It binds loopback only and captures a
+real screen; it requires an explicit command-line confirmation, an interactive
+disposable Windows desktop and native dependencies. It is written but **not
+built or run**; it is not a production security demonstration. Command after
+extraction and review: `cargo run --manifest-path remote-core/Cargo.toml -p
+remote-core --example windows_loopback_session -- --confirm-local-screen-capture`.
