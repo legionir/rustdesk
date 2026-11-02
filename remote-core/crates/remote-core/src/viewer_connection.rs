@@ -140,6 +140,21 @@ impl<T: NetworkTransport> ViewerConnection<T> {
             Err(e) => { self.abort(); Err(ViewerError::Network(e)) },
         }
     }
+    /// Send one existing source video refresh/received notification. This does
+    /// not provide codec recovery, flow control or prove the host acted on it.
+    /// A peer supplied display index must be validated by the host. Like input,
+    /// a failed or cancelled send has indeterminate delivery; do not retry on
+    /// the same connection without an application-level recovery policy.
+    pub async fn send_video_control(&mut self, control: remote_protocol::video_control::VideoControl, deadline: Duration) -> Result<(), ViewerError> {
+        if self.phase != Phase::Connected || deadline.is_zero() { return Err(ViewerError::InvalidState); }
+        let event = Envelope::video_control_event(control).ok_or(ViewerError::UnexpectedMessage)?;
+        let wire = event.encode(self.max_bytes)?;
+        self.phase = Phase::Busy;
+        match self.transport.send(&wire, deadline).await {
+            Ok(()) => { self.phase = Phase::Connected; Ok(()) },
+            Err(error) => { self.abort(); Err(ViewerError::Network(error)) },
+        }
+    }
     /// Receive one message. Cursor decoding is bounded but not audited; video
     /// remains compressed. On cancellation close/drop the Busy connection.
     pub async fn receive(&mut self, deadline: Duration) -> Result<ViewerEvent, ViewerError> {

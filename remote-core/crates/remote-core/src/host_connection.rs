@@ -35,6 +35,16 @@ pub struct LoginClaims {
 }
 struct PendingLogin { claims: LoginClaims, response: Zeroizing<Vec<u8>> }
 
+/// A handled event or a video-control request for the host scheduler.
+/// Control requests are untrusted, must be rate-limited and validated against
+/// the caller's current display list, and do not themselves refresh an encoder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostEvent {
+    Input,
+    Heartbeat,
+    VideoControl(remote_protocol::video_control::VideoControl),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase { New, Busy, PendingApproval, Approved, Authorized, Closed }
 
@@ -289,10 +299,21 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.phase = Phase::Authorized;
         Ok(true)
     }
-    /// Process one input or TestDelay message with restricted Windows-style
-    /// dispatchers. Other messages are rejected; no full event loop is provided.
-    /// On cancelled receive the connection stays Busy and must be closed/dropped.
+    /// Process one input or TestDelay message as in the original narrow API.
+    /// Video-control events are consumed but returned as unexpected; callers
+    /// that support them must use `receive_event` consistently instead.
     pub async fn receive_input(&mut self, deadline: Duration) -> Result<(), ConnectionError> {
+        match self.receive_event(deadline).await? {
+            HostEvent::Input | HostEvent::Heartbeat => Ok(()),
+            HostEvent::VideoControl(_) => Err(ConnectionError::UnexpectedMessage),
+        }
+    }
+    /// Receive one authorized input, heartbeat, or video-control request.
+    /// Video controls require screen-view permission but are not acted upon by
+    /// this API. The caller must validate display IDs, rate-limit and decide
+    /// how/when to refresh or record ACKs. On cancellation close/drop the Busy
+    /// connection. This serial interface is not an autonomous host event loop.
+    pub async fn receive_event(&mut self, deadline: Duration) -> Result<HostEvent, ConnectionError> {
         if self.phase != Phase::Authorized || deadline.is_zero() { return Err(ConnectionError::InvalidState); }
         self.phase = Phase::Busy;
         let raw = match self.transport.receive(deadline).await {
@@ -302,11 +323,11 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.phase = Phase::Authorized;
         let event = Envelope::decode(&raw, self.max_post_auth_bytes)?;
         let result = match event.kind() {
-            MessageKind::Mouse if self.tracked_modifiers => crate::tracked_modifiers::mouse(&mut self.host, &event).map_err(ConnectionError::TrackedModifier),
-            MessageKind::Mouse => windows_mouse::dispatch(&mut self.host, &event).map_err(ConnectionError::Mouse),
+            MessageKind::Mouse if self.tracked_modifiers => crate::tracked_modifiers::mouse(&mut self.host, &event).map(|_| HostEvent::Input).map_err(ConnectionError::TrackedModifier),
+            MessageKind::Mouse => windows_mouse::dispatch(&mut self.host, &event).map(|_| HostEvent::Input).map_err(ConnectionError::Mouse),
             MessageKind::Keyboard if self.tracked_modifiers && matches!(event.keyboard()?.payload(), Some(remote_protocol::KeyboardPayload::ControlKey(_))) =>
-                crate::tracked_modifiers::keyboard(&mut self.host, &event).map_err(ConnectionError::TrackedModifier),
-            MessageKind::Keyboard => windows_keyboard::dispatch(&mut self.host, &event).map_err(ConnectionError::Keyboard),
+                crate::tracked_modifiers::keyboard(&mut self.host, &event).map(|_| HostEvent::Input).map_err(ConnectionError::TrackedModifier),
+            MessageKind::Keyboard => windows_keyboard::dispatch(&mut self.host, &event).map(|_| HostEvent::Input).map_err(ConnectionError::Keyboard),
             MessageKind::TestDelay => {
                 // The source host echoes client-origin probes unchanged. Host-
                 // origin replies need separate RTT bookkeeping, not provided here.
@@ -317,8 +338,10 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
                     }
                     self.phase = Phase::Authorized;
                 }
-                Ok(())
+                Ok(HostEvent::Heartbeat)
             },
+            _ if event.video_control().is_some() && self.host.permissions().view_screen =>
+                Ok(HostEvent::VideoControl(event.video_control().ok_or(ConnectionError::UnexpectedMessage)?)),
             _ => Err(ConnectionError::UnexpectedMessage),
         };
         // A session/input failure may represent partial OS delivery. Close and
