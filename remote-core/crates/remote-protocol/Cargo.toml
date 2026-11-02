@@ -8,3 +8,4 @@ publish = false
 base = { path = "../../../libs/base" }
 hbb_common = { path = "../../../libs/hbb_common" }
 zstd = "0.13"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }

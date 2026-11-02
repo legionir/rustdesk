@@ -69,6 +69,18 @@ impl CursorShape {
         if self.rgba.len() != expected_len(self.width, self.height, self.hotx, self.hoty)? { return Err(CursorError::InvalidLength); }
         Ok(())
     }
+    /// Compute the pinned source's 53-bit XXH3 content ID from RGBA and
+    /// geometry. This non-cryptographic identifier can collide and must not be
+    /// used to authenticate a cursor or peer.
+    pub fn source_content_id(&self) -> Result<u64, CursorError> {
+        self.validate()?;
+        let mut hash = xxhash_rust::xxh3::Xxh3::new();
+        for value in [self.width, self.height, self.hotx, self.hoty] {
+            hash.update(&value.to_le_bytes());
+        }
+        hash.update(&self.rgba);
+        Ok(hash.digest() & ((1u64 << 53) - 1))
+    }
 }
 
 impl Envelope {
@@ -187,6 +199,7 @@ mod tests {
     #[test]
     fn round_trips_cursor_and_large_wire_id() {
         let input = shape(u64::MAX - 5);
+        assert!(input.source_content_id().unwrap() < (1u64 << 53));
         let envelope = Envelope::cursor_shape_event(&input).unwrap();
         let wire = envelope.encode(4096).unwrap();
         let decoded = Envelope::decode(&wire, 4096).unwrap().cursor_shape().unwrap();
