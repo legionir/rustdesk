@@ -176,3 +176,5 @@ pub mod strict_wss;
 
 /// Experimental pinned-source encrypted message transport and key exchange.
 pub mod source_crypto;
+/// Explicit opt-in RustDesk-framed direct TCP, without built-in security.
+pub mod direct_tcp;

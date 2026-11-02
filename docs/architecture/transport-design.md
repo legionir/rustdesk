@@ -83,3 +83,12 @@ buffered data and is untested; WSS currently has no adjustable implementation.
 Callers must apply a pre-auth framing cap before the identity handshake and
 retain admission until all approval completes. No network-facing TCP listener
 is provided by this prototype.
+
+`direct_tcp` is an additional explicit-opt-in direct TCP listener/connector
+using the same RustDesk frame codec and dynamic frame limit; unlike the earlier
+loopback adapter it can bind/connect non-loopback literal addresses. It is
+plaintext, unauthenticated and dangerous if exposed by itself. It does not
+implement DNS, proxy or SSRF policy. The caller must admit the transport-observed
+peer address before handshake, apply reviewed encryption and trusted owner
+policy, and control address exposure. Neither its local synthetic case nor a
+real network deployment has been tested.
