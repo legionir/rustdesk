@@ -85,3 +85,10 @@ experiment, not proof of interoperability or a security boundary; no UI, real
 input, codec stream, pinned-key provisioning or untrusted-client tests are
 included. Admission should be taken *before* beginning the identity handshake;
 the case is only a composition sketch and does not model that ordering.
+
+An approved `HostConnection` can optionally acquire the existing cooperative
+`InputArbiter` without exposing its host or transport. The lease remains held
+until detectable session/input cleanup succeeds; unresolved drop quarantines
+the arbiter. This remains optional, local-process coordination only: unguarded
+connections, other processes and human input bypass it, and Windows Enigo does
+not report every release failure. These changes are not built or tested.

@@ -133,3 +133,41 @@ impl<B: InputBackend> Drop for ControlledSession<B> {
         self.owns_lease = false;
     }
 }
+
+/// A cooperative lease for an owner that keeps its host session elsewhere.
+/// Dropping an unfinished lease quarantines the arbiter, because the lease
+/// cannot independently prove input cleanup. Only call `finish_clean` after the
+/// trusted caller has successfully closed the associated input session.
+pub struct InputLease { state: Arc<Mutex<State>>, id: SessionId, finished: bool }
+impl InputArbiter {
+    /// Reserve the same shared arbiter for an eligible host without taking the
+    /// host by value. This does not prevent unguarded input elsewhere.
+    pub fn acquire<B: InputBackend>(&self, host: &HostInputSession<B>) -> Result<InputLease, ArbitrationError> {
+        if !matches!(host.state(), SessionState::Connected | SessionState::Streaming)
+            || !(host.permissions().control_mouse || host.permissions().control_keyboard) {
+            return Err(ArbitrationError::SessionNotEligible);
+        }
+        let mut state = self.state.lock().map_err(|_| ArbitrationError::Poisoned)?;
+        if state.quarantine { return Err(ArbitrationError::Quarantined); }
+        if state.owner.is_some() { return Err(ArbitrationError::Busy); }
+        let id = host.id(); state.owner = Some(id); drop(state);
+        Ok(InputLease { state: self.state.clone(), id, finished: false })
+    }
+}
+impl InputLease {
+    /// Release a lease after the host's detectable cleanup succeeded. This is
+    /// a trusted assertion; Windows Enigo cannot verify every OS release.
+    pub fn finish_clean(mut self) -> Result<(), ArbitrationError> {
+        let mut state = self.state.lock().map_err(|_| ArbitrationError::Poisoned)?;
+        if state.owner != Some(self.id) { return Err(ArbitrationError::Quarantined); }
+        state.owner = None; self.finished = true; Ok(())
+    }
+}
+impl Drop for InputLease {
+    fn drop(&mut self) {
+        if self.finished { return; }
+        if let Ok(mut state) = self.state.lock() {
+            if state.owner == Some(self.id) { state.owner = None; state.quarantine = true; }
+        }
+    }
+}
