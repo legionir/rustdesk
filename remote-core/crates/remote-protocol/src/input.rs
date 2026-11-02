@@ -44,6 +44,19 @@ impl Envelope {
         keyboard.down = down; keyboard.set_chr(code);
         let mut inner = message_proto::Message::new(); inner.set_key_event(keyboard); Ok(Self { inner })
     }
+    /// Construct a restricted source Translate-mode Windows position event.
+    /// Upper 16 bits encode a Windows virtual key when nonzero; otherwise the
+    /// low bits encode a physical scan code. Compatibility is caller-owned.
+    pub fn windows_translate_event(code: u32, down: bool) -> Result<Self, InputWireError> {
+        let vk = code >> 16;
+        if vk == 0 {
+            let high = code >> 8; let low = code & 0xff;
+            if low == 0 || !matches!(high, 0 | 0xe0 | 0xe1) { return Err(InputWireError::InvalidScanCode); }
+        } else if vk > 0xfe { return Err(InputWireError::InvalidControlKey); }
+        let mut keyboard = message_proto::KeyEvent::new(); keyboard.mode = message_proto::KeyboardMode::Translate.into();
+        keyboard.down = down; keyboard.set_chr(code);
+        let mut inner = message_proto::Message::new(); inner.set_key_event(keyboard); Ok(Self { inner })
+    }
     /// Construct a legacy-mode source keyboard message. The receiver determines
     /// semantics and permission; position/translate/map modes are not covered.
     pub fn legacy_keyboard_event(key: LegacyKey<'_>, down: bool, press: bool, values: &[i32]) -> Result<Self, InputWireError> {

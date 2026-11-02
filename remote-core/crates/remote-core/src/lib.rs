@@ -238,6 +238,13 @@ impl<B: InputBackend> HostInputSession<B> {
     pub fn scan_up(&mut self, code: ScanCode) -> Result<(), HostInputError> {
         self.session.check(Action::ControlKeyboard)?; self.input.scan_up(code)?; Ok(())
     }
+    /// Inject a source rdev raw Windows virtual key after authorization.
+    pub fn raw_virtual_down(&mut self, key: VirtualKey) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?; self.input.raw_virtual_down(key)?; Ok(())
+    }
+    pub fn raw_virtual_up(&mut self, key: VirtualKey) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?; self.input.raw_virtual_up(key)?; Ok(())
+    }
     /// Inject a bounded text sequence after keyboard authorization.
     /// Backend/OS limitations and controller-held key restrictions apply.
     pub fn type_text(&mut self, text: &str) -> Result<(), HostInputError> {
@@ -409,6 +416,29 @@ pub mod windows_keyboard {
         let raw = match event.payload() { Some(KeyboardPayload::Position(value)) => value, _ => return Err(DispatchError::Unsupported("map-mode requires a position scan code")) };
         let code = remote_input::ScanCode::new(raw).map_err(|_| DispatchError::Unsupported("invalid Windows scan code"))?;
         if event.down() { host.scan_down(code)?; } else { host.scan_up(code)?; }
+        Ok(())
+    }
+    /// Restricted Windows Translate-mode `Chr` handling. Source
+    /// `translate_process_code` uses a scan code when the upper 16 bits are
+    /// zero, otherwise a raw Windows virtual key from those upper bits. This
+    /// subset rejects modifier metadata, press, Unicode, sequences and Windows
+    /// hotkeys; it does not synchronize OS state or switch desktops. The input
+    /// controller rejects mixed representations while any keys are held.
+    pub fn dispatch_translate<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
+        host.session.check(remote_session::Action::ControlKeyboard).map_err(HostInputError::from)?;
+        let event = envelope.keyboard()?;
+        if event.mode() != 2 || event.press() || event.modifiers().next().is_some() {
+            return Err(DispatchError::Unsupported("unsupported translate-mode flags or modifiers"));
+        }
+        let raw = match event.payload() { Some(KeyboardPayload::Position(value)) => value, _ => return Err(DispatchError::Unsupported("translate mode requires a position code")) };
+        let vk = raw >> 16;
+        if vk == 0 {
+            let code = ScanCode::new(raw).map_err(|_| DispatchError::Unsupported("invalid Windows scan code"))?;
+            if event.down() { host.scan_down(code)?; } else { host.scan_up(code)?; }
+        } else {
+            let key = u16::try_from(vk).ok().and_then(|value| VirtualKey::new(value).ok()).ok_or(DispatchError::Unsupported("invalid Windows virtual key"))?;
+            if event.down() { host.raw_virtual_down(key)?; } else { host.raw_virtual_up(key)?; }
+        }
         Ok(())
     }
     /// Apply a non-modifier legacy control-key or Unicode/sequence message to a Windows-style backend.
