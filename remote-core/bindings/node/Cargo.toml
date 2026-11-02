@@ -13,7 +13,11 @@ doctest = false
 remote-capture = { path = "../../crates/remote-capture" }
 remote-codec = { path = "../../crates/remote-codec" }
 remote-protocol = { path = "../../crates/remote-protocol" }
-remote-core = { path = "../../crates/remote-core" }
+remote-core = { path = "../../crates/remote-core", features = ["source-security"] }
+remote-input = { path = "../../crates/remote-input" }
+remote-security = { path = "../../crates/remote-security" }
+remote-session = { path = "../../crates/remote-session" }
+getrandom = "0.2"
 remote-rustdesk-websocket = { path = "../../adapters/rustdesk" }
 hbb_common = { path = "../../../libs/hbb_common" }
 tokio = { version = "1.44", features = ["rt-multi-thread", "net", "time"] }

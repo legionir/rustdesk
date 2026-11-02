@@ -20,19 +20,19 @@ const MAX_VIEWERS: usize = 8;
 const PRE_AUTH_FRAME: usize = 128 * 1024;
 const MAX_FRAME: usize = 16 * 1024 * 1024 - 16;
 
-fn runtime() -> Result<&'static tokio::runtime::Runtime> {
+pub(crate) fn runtime() -> Result<&'static tokio::runtime::Runtime> {
     if let Some(rt) = RUNTIME.get() { return Ok(rt); }
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().map_err(js_error)?;
     let _ = RUNTIME.set(rt); // Another worker may have installed a runtime first.
     RUNTIME.get().ok_or_else(|| Error::from_reason("cannot initialize network runtime"))
 }
-fn wait(ms: u32) -> Result<Duration> {
+pub(crate) fn wait(ms: u32) -> Result<Duration> {
     if ms == 0 || ms > 180_000 { return Err(Error::from_reason("timeoutMs must be 1..180000")); }
     Ok(Duration::from_millis(ms.into()))
 }
-fn remaining(end: Instant) -> Result<Duration> {
+pub(crate) fn remaining(end: Instant) -> Result<Duration> {
     let value = end.saturating_duration_since(Instant::now());
-    if value.is_zero() { Err(Error::from_reason("viewer connection deadline expired")) } else { Ok(value) }
+    if value.is_zero() { Err(Error::from_reason("connection deadline expired")) } else { Ok(value) }
 }
 struct ViewerLease;
 impl ViewerLease {
