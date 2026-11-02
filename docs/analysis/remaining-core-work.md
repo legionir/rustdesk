@@ -27,7 +27,10 @@ unbuilt and untested by request; do not use the current prototype as a product.
   are not completed. `hwcodec` RAM paths exist but are unbuilt and untested.
 - `viewer_connection` demultiplexes a small set of existing protobuf variants;
   it does not render or negotiate codecs, request video refresh on recovery,
-  support video ACK/QoS or handle all display/permission updates. Native video
+  support video ACK/QoS or handle all display/permission updates. The
+  `remote-protocol::video_control` subset can encode and inspect the existing
+  refresh/received wire fields but is not connected to handling or scheduling.
+  Native video
   decoders are not hardened against hostile compressed streams.
 
 ## Security and transport
