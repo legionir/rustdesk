@@ -81,14 +81,14 @@ fn validate_limit(max_message_size: usize, deadline: Duration) -> Result<(), Wss
     Ok(())
 }
 
-fn client_config(mut roots: RootCertStore) -> Result<Arc<ClientConfig>, WssError> {
+fn client_config(roots: RootCertStore) -> Result<Arc<ClientConfig>, WssError> {
     // An explicitly chosen provider avoids relying on Rustls's process-global
     // provider selection when other parts of the application use Rustls too.
     if roots.is_empty() { return Err(WssError::TlsConfiguration); }
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let builder = ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions()
         .map_err(|_| WssError::TlsConfiguration)?;
-    Ok(Arc::new(builder.with_root_certificates(std::mem::take(&mut roots)).with_no_client_auth()))
+    Ok(Arc::new(builder.with_root_certificates(roots).with_no_client_auth()))
 }
 fn system_client_config() -> Result<Arc<ClientConfig>, WssError> {
     let mut roots = RootCertStore::empty();
@@ -198,4 +198,79 @@ impl NetworkTransport for StrictWss {
         })
     }
     fn close(&mut self) { StrictWss::close(self); }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::{net::TcpListener, task::JoinHandle};
+    use tokio_rustls::{rustls::{pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer}, ServerConfig}, TlsAcceptor};
+    use tokio_tungstenite::accept_async;
+    const WAIT: Duration = Duration::from_secs(5);
+    const CA: &[u8] = include_bytes!("../fixtures/test-ca.der");
+    const CERT: &[u8] = include_bytes!("../fixtures/test-server.der");
+    const KEY: &[u8] = include_bytes!("../fixtures/test-server-key.der");
+
+    fn test_roots() -> Arc<ClientConfig> {
+        let mut roots = RootCertStore::empty();
+        roots.add(CertificateDer::from(CA.to_vec())).unwrap();
+        client_config(roots).unwrap()
+    }
+    async fn test_server(text: bool) -> (u16, JoinHandle<()>) {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let cert = CertificateDer::from(CERT.to_vec());
+        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY.to_vec()));
+        let config = ServerConfig::builder_with_provider(provider).with_safe_default_protocol_versions().unwrap()
+            .with_no_client_auth().with_single_cert(vec![cert], key).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            let Ok((stream, _)) = listener.accept().await else { return };
+            let Ok(tls) = TlsAcceptor::from(Arc::new(config)).accept(stream).await else { return };
+            let Ok(mut ws) = accept_async(tls).await else { return };
+            if text {
+                let _ = ws.send(Message::Text("not binary".into())).await;
+            } else if let Some(Ok(Message::Binary(data))) = ws.next().await {
+                let _ = ws.send(Message::Binary(data)).await;
+            }
+        });
+        (port, task)
+    }
+    async fn finish(task: JoinHandle<()>) { timeout(WAIT, task).await.unwrap().unwrap(); }
+    #[test]
+    fn endpoint_policy_refuses_plaintext_and_url_secrets() {
+        assert!(endpoint("wss://example.com/path").is_ok());
+        for value in ["ws://example.com/", "https://example.com/", "wss://user:pass@example.com/", "wss://example.com/?token=x", "wss://example.com/#x", "wss://example.com:0/"] {
+            assert!(matches!(endpoint(value), Err(WssError::InvalidEndpoint)));
+        }
+    }
+    #[tokio::test]
+    async fn validates_test_ca_and_transfers_binary() {
+        let (port, task) = test_server(false).await;
+        let url = endpoint(&format!("wss://localhost:{port}/")).unwrap();
+        let mut client = StrictWss::connect_with_config(url, 1024, WAIT, test_roots()).await.unwrap();
+        client.send(b"synthetic", WAIT).await.unwrap();
+        assert_eq!(client.receive(WAIT).await.unwrap(), b"synthetic");
+        finish(task).await;
+    }
+    #[tokio::test]
+    async fn refuses_wrong_hostname_even_for_trusted_ca() {
+        let (port, task) = test_server(false).await;
+        // The fixture has only DNS:localhost, not the 127.0.0.1 IP SAN.
+        let url = endpoint(&format!("wss://127.0.0.1:{port}/")).unwrap();
+        assert!(matches!(StrictWss::connect_with_config(url, 1024, WAIT, test_roots()).await, Err(WssError::ConnectionFailed)));
+        finish(task).await;
+    }
+    #[tokio::test]
+    async fn refuses_untrusted_ca_and_closes_on_text() {
+        let (port, task) = test_server(false).await;
+        assert!(matches!(StrictWss::connect(&format!("wss://localhost:{port}/"), 1024, WAIT).await, Err(WssError::ConnectionFailed)));
+        finish(task).await;
+        let (port, task) = test_server(true).await;
+        let url = endpoint(&format!("wss://localhost:{port}/")).unwrap();
+        let mut client = StrictWss::connect_with_config(url, 1024, WAIT, test_roots()).await.unwrap();
+        assert!(matches!(client.receive(WAIT).await, Err(WssError::UnexpectedFrame)));
+        assert!(!client.is_open());
+        finish(task).await;
+    }
 }
