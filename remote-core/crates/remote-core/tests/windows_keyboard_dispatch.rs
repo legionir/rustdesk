@@ -2,7 +2,7 @@
 use base::message_proto::{ControlKey, KeyEvent, KeyboardMode, Message};
 use hbb_common::protobuf::Message as _;
 use remote_core::{windows_keyboard::{dispatch, DispatchError}, HostInputSession};
-use remote_input::{InputBackend, MouseButton, VirtualKey};
+use remote_input::{InputBackend, MouseButton, ScanCode, VirtualKey};
 use remote_protocol::Envelope;
 use remote_security::{password_response, OwnerApproval, PasswordVerifier};
 use remote_session::{Credential, Permissions, Principal, SessionId};
@@ -17,6 +17,8 @@ impl InputBackend for Fake {
     fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
     fn key_down(&mut self, k: VirtualKey) -> io::Result<()> { self.0.borrow_mut().push(format!("down:{}", k.code())); Ok(()) }
     fn key_up(&mut self, k: VirtualKey) -> io::Result<()> { self.0.borrow_mut().push(format!("up:{}", k.code())); Ok(()) }
+    fn scan_down(&mut self, key: ScanCode) -> io::Result<()> { self.0.borrow_mut().push(format!("scan-down:{}", key.code())); Ok(()) }
+    fn scan_up(&mut self, key: ScanCode) -> io::Result<()> { self.0.borrow_mut().push(format!("scan-up:{}", key.code())); Ok(()) }
     fn type_text(&mut self, text: &str) -> io::Result<()> { self.0.borrow_mut().push(format!("text:{text}")); Ok(()) }
 }
 fn event(key: ControlKey, down: bool, press: bool, mode: KeyboardMode, modifiers: bool) -> Envelope {
@@ -73,4 +75,19 @@ fn permits_bounded_bmp_text_but_not_while_a_key_is_held() {
     dispatch(&mut host, &event(ControlKey::F2, false, false, KeyboardMode::Legacy, false)).unwrap();
     assert!(dispatch(&mut host, &text_event("😀" )).is_err());
     assert_eq!(&*calls.borrow(), &["text:سلام", "down:113", "up:113"]);
+}
+
+#[test]
+fn restricted_map_mode_tracks_scan_keys_and_releases_on_revoke() {
+    let fake = Fake::default(); let calls = fake.0.clone(); let mut host = authorized(fake);
+    let down = Envelope::windows_scan_event(0xe01d, true).unwrap();
+    let up = Envelope::windows_scan_event(0xe01d, false).unwrap();
+    remote_core::windows_keyboard::dispatch_map(&mut host, &down).unwrap();
+    // Physical and virtual representations must not be tracked simultaneously.
+    assert!(dispatch(&mut host, &event(ControlKey::F2, true, false, KeyboardMode::Legacy, false)).is_err());
+    remote_core::windows_keyboard::dispatch_map(&mut host, &up).unwrap();
+    remote_core::windows_keyboard::dispatch_map(&mut host, &down).unwrap();
+    host.restrict_permissions(Permissions::default()).unwrap();
+    assert_eq!(&*calls.borrow(), &["scan-down:57373", "scan-up:57373", "scan-down:57373", "scan-up:57373"]);
+    assert!(Envelope::windows_scan_event(0x12345, true).is_err());
 }

@@ -78,5 +78,10 @@ mod tests {
         assert_eq!(key.modifiers().collect::<Vec<_>>(), vec![4]);
         let mouse = Envelope::mouse_event_with_modifiers(MouseEvent { mask: 0, x: -4, y: 8 }, &[29]).unwrap();
         assert_eq!(mouse.mouse_modifiers().unwrap().collect::<Vec<_>>(), vec![29]);
+        let scan = Envelope::windows_scan_event(0xe01d, true).unwrap();
+        let wire = scan.encode(4096).unwrap(); let parsed = Envelope::decode(&wire, 4096).unwrap();
+        assert_eq!(parsed.keyboard().unwrap().mode(), 1);
+        assert_eq!(parsed.keyboard().unwrap().payload(), Some(KeyboardPayload::Position(0xe01d)));
+        assert!(Envelope::windows_scan_event(0, true).is_err());
     }
 }

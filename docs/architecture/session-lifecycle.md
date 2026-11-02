@@ -152,3 +152,11 @@ limiting remain required. Revoking screen view discards the cache. Cached IDs
 are non-cryptographic and may collide; no OS-wide cursor visibility or hidden
 cursor behavior is guaranteed. The wire/authorization cases and Windows GDI
 sampling are unbuilt and untested.
+
+The restricted opt-in Windows Map-mode path now uses the same pinned `rdev`
+raw `ScanCode` representation as `src/server/input_service.rs` and tracks
+held scan keys for revocation/close. It refuses mixed scan/virtual tracked keys,
+modifier-bearing wire messages, press semantics and codes outside the stated
+range; it does not provide desktop switching, source modifier/lock-state repair,
+repeat or Translate mode. No real Windows input, rdev build or fake test has run.
+It is not enabled for the view-only Node host and is not an OS-wide lock.
