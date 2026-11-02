@@ -21,6 +21,9 @@ impl NativeViewer {
     async fn send_input(&mut self, event: &Envelope, wait: Duration) -> std::result::Result<(), ViewerError> {
         match self { Self::Tcp(v) => v.send_input(event, wait).await, Self::Wss(v) => v.send_input(event, wait).await }
     }
+    async fn send_display_control(&mut self, event: &Envelope, wait: Duration) -> std::result::Result<(), ViewerError> {
+        match self { Self::Tcp(v) => v.send_display_control(event, wait).await, Self::Wss(v) => v.send_display_control(event, wait).await }
+    }
     async fn send_video_control(&mut self, event: remote_protocol::video_control::VideoControl, wait: Duration) -> std::result::Result<(), ViewerError> {
         match self { Self::Tcp(v) => v.send_video_control(event, wait).await, Self::Wss(v) => v.send_video_control(event, wait).await }
     }
@@ -199,6 +202,22 @@ impl Viewer {
         let lease = BusyLease::acquire(&self.state)?;
         Ok(AsyncTask::new(SendWireInputTask { state: self.state.clone(), _busy: lease, wire, deadline }))
     }
+    /// Request a display switch without changing host resolution. The host may
+    /// refuse or ignore it; its display indices may have changed since login.
+    #[napi]
+    pub fn request_display(&self, display: u32, timeout_ms: u32) -> Result<AsyncTask<DisplayControlTask>> {
+        let value = remote_protocol::display_control::DisplaySwitch { display, x: 0, y: 0, width: 0, height: 0, cursor_embedded: false };
+        let event = Envelope::display_switch_event(&value).map_err(js_error)?;
+        self.display_control_task(event, timeout_ms)
+    }
+    /// Send existing subscription lists. Empty lists request an empty set, which
+    /// may unsubscribe every display. No capture or OS state is changed locally.
+    #[napi]
+    pub fn request_capture_displays(&self, add: Vec<u32>, sub: Vec<u32>, set: Vec<u32>, timeout_ms: u32) -> Result<AsyncTask<DisplayControlTask>> {
+        let value = remote_protocol::display_control::CaptureDisplays { add, sub, set };
+        let event = Envelope::capture_displays_event(&value).map_err(js_error)?;
+        self.display_control_task(event, timeout_ms)
+    }
     /// Request a refresh of all displays; host support/rate limits vary.
     #[napi]
     pub fn request_refresh_all(&self, timeout_ms: u32) -> Result<AsyncTask<VideoControlTask>> {
@@ -252,11 +271,30 @@ impl Viewer {
 }
 
 impl Viewer {
+    fn display_control_task(&self, event: Envelope, timeout_ms: u32) -> Result<AsyncTask<DisplayControlTask>> {
+        let deadline = wait(timeout_ms)?;
+        let wire = event.encode(8192).map_err(js_error)?;
+        let lease = BusyLease::acquire(&self.state)?;
+        Ok(AsyncTask::new(DisplayControlTask { state: self.state.clone(), _busy: lease, wire, deadline }))
+    }
     fn video_control_task(&self, control: remote_protocol::video_control::VideoControl, timeout_ms: u32) -> Result<AsyncTask<VideoControlTask>> {
         let deadline = wait(timeout_ms)?;
         let lease = BusyLease::acquire(&self.state)?;
         Ok(AsyncTask::new(VideoControlTask { state: self.state.clone(), _busy: lease, control, deadline }))
     }
+}
+
+pub struct DisplayControlTask { state: Arc<ViewerState>, _busy: BusyLease, wire: Vec<u8>, deadline: Duration }
+impl Task for DisplayControlTask {
+    type Output = ();
+    type JsValue = ();
+    fn compute(&mut self) -> Result<()> {
+        let event = Envelope::decode(&self.wire, 8192).map_err(js_error)?;
+        let mut lock = self.state.viewer.lock().map_err(|_| Error::from_reason("viewer state poisoned"))?;
+        let viewer = lock.as_mut().ok_or_else(|| Error::from_reason("viewer is closed"))?;
+        runtime()?.block_on(viewer.send_display_control(&event, self.deadline)).map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
 }
 
 pub struct VideoControlTask {

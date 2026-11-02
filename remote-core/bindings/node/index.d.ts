@@ -81,6 +81,10 @@ export class Viewer {
   /** These are requests/notifications only; they do not refresh or decode video locally. */
   advertiseDecoding(options: ViewerDecodingOptions, timeoutMs: number): Promise<void>;
   requestCursorShape(id: string, timeoutMs: number): Promise<void>;
+  /** Does not change resolution. Host may deny or ignore it. */
+  requestDisplay(display: number, timeoutMs: number): Promise<void>;
+  /** Empty lists can unsubscribe all displays; host may deny this request. */
+  requestCaptureDisplays(add: number[], sub: number[], set: number[], timeoutMs: number): Promise<void>;
   requestRefreshAll(timeoutMs: number): Promise<void>;
   requestRefreshDisplay(display: number, timeoutMs: number): Promise<void>;
   notifyVideoReceived(timeoutMs: number): Promise<void>;
