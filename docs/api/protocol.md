@@ -108,3 +108,12 @@ rejects non-BMP characters, NUL and sequences over 4096 UTF-8 bytes; source
 behavior is broader. It does not synchronize local human/other-process modifier
 state, switch desktops, implement IME or guarantee Windows accepted input.
 Synthetic cases are written but not run; interactive Windows tests are required.
+
+An opt-in `tracked_modifiers` dispatcher handles a restricted set of explicit
+legacy Shift/Control/Alt/Windows key transitions and mouse messages whose
+modifier lists exactly match keys held by that controller. It does not inspect
+or repair global OS modifier state, synthesize missing modifiers, handle AltGr
+correctly or match the full source behavior. Its mouse path requires *both*
+mouse and keyboard permissions, unlike the default provisional dispatcher.
+`HostConnection` leaves it off unless explicitly enabled; disabling it does not
+release keys. Cleanup/revocation is required. Cases are written but not run.
