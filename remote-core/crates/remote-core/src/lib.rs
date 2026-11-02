@@ -18,6 +18,8 @@ pub mod admitted_host;
 pub mod viewer_connection;
 /// Optional keyframe/loss bookkeeping for one video stream.
 pub mod video_sync;
+/// Bounded per-display video synchronization bookkeeping.
+pub mod video_streams;
 /// Caller-driven source-style video pacing and probe/ACK bookkeeping.
 pub mod video_schedule;
 /// Caller-driven planning for source multi-display subscriptions.
