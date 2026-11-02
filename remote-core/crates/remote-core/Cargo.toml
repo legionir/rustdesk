@@ -14,9 +14,9 @@ remote-transport = { path = "../remote-transport" }
 [features]
 linux-pkg-config = ["remote-codec/linux-pkg-config"]
 wayland = ["remote-codec/wayland"]
-drm = ["remote-codec/drm"]
+drm = ["wayland", "remote-codec/drm"]
 hwcodec = ["remote-codec/hwcodec"]
-vram = ["remote-codec/vram"]
+vram = ["hwcodec", "remote-codec/vram"]
 mediacodec = ["remote-codec/mediacodec"]
 
 [dev-dependencies]

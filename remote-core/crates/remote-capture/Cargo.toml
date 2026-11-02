@@ -11,7 +11,7 @@ scrap = { path = "../../../libs/scrap" }
 # Mirrors the source backend's optional native build feature.
 linux-pkg-config = ["scrap/linux-pkg-config"]
 wayland = ["scrap/wayland"]
-drm = ["scrap/drm"]
+drm = ["wayland", "scrap/drm"]
 hwcodec = ["scrap/hwcodec"]
-vram = ["scrap/vram"]
+vram = ["hwcodec", "scrap/vram"]
 mediacodec = ["scrap/mediacodec"]
