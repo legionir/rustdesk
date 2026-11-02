@@ -62,3 +62,20 @@ fn failed_cleanup_quarantines_on_drop_and_requires_explicit_recovery() {
     let mut pending = match arbiter.attach(pending) { Ok(value) => value, Err(_) => panic!("attach after recovery") };
     pending.close().unwrap();
 }
+#[test]
+fn borrowed_host_lease_quarantines_if_not_finished() {
+    let arbiter = InputArbiter::new();
+    let first = host(1, Fake::default());
+    let second = host(2, Fake::default());
+    let lease = arbiter.acquire(&first).unwrap();
+    assert!(matches!(arbiter.acquire(&second), Err(ArbitrationError::Busy)));
+    drop(lease);
+    assert!(arbiter.is_quarantined().unwrap());
+    assert!(matches!(arbiter.acquire(&second), Err(ArbitrationError::Quarantined)));
+    arbiter.acknowledge_manual_recovery().unwrap();
+    let mut second = second;
+    let lease = arbiter.acquire(&second).unwrap();
+    second.close().unwrap();
+    lease.finish_clean().unwrap();
+    assert_eq!(arbiter.owner().unwrap(), None);
+}
