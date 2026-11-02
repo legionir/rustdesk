@@ -52,4 +52,3 @@ pub async fn accept<T: AdjustableNetworkTransport, B: InputBackend>(
     let secured = accept_pinned_host(transport, host_id, signing_key, MAX_PRE_AUTH_BYTES, wait).await.map_err(AcceptError::Handshake)?;
     HostConnection::new(secured, id, backend, verifier, permit, MAX_PRE_AUTH_BYTES).map_err(AcceptError::Connection)
 }
-

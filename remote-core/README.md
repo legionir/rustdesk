@@ -67,7 +67,9 @@ is best-effort and cannot handle process crash or power loss. This module is not
 an authenticator or a sandbox. Only use it under an authenticated, authorized
 session manager that serializes access to the OS input device; concurrent
 controllers can otherwise interfere with each other's keys. Layout conversion,
-scan-code modes, text/IME, repeat and monitor-relative mapping are not implemented.
+scan-code modes, full text/IME, repeat and monitor-relative mapping are not implemented.
+A limited legacy BMP text path and opt-in tracked modifiers were added later,
+but they do not reproduce full source input behavior.
 Experimental mouse and unmodified legacy-control-key protocol translation covers
 only a subset and is documented in `../docs/api/protocol.md`.
 
