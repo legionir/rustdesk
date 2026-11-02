@@ -10,6 +10,8 @@
 
 /// Bounded pre-authorization admission for cooperating connection managers.
 pub mod admission;
+/// Optional bounded in-process local owner-decision handoff (not an OS UI).
+pub mod approval;
 
 use remote_session::{Authenticator, Authorizer, Credential, Permissions, Principal, SessionId};
 use sha2::{Digest, Sha256};
