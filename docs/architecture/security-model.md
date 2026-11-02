@@ -92,3 +92,10 @@ is an error (it must not be ignored). Its explicit source-compatible success
 reset clears shared IPv6 prefix counters and can enable bypass by one successful
 peer; default integration and policy require human security review. Proxy and
 WSS endpoints must not use unauthenticated headers as trusted client IPs.
+
+The optional counter's operator reset intentionally clears all lockout state;
+it is not triggered automatically by capacity exhaustion and must not be
+exposed to a remote peer. With no expiry or persistence, a full table can
+block new address tracking and a restart loses counters. Applications need an
+explicit reviewed operational policy rather than treating this module as a
+complete password-guessing defense.
