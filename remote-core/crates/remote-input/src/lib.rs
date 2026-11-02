@@ -148,9 +148,18 @@ impl<B: InputBackend> InputController<B> {
         Ok(())
     }
     /// Press a button. Repeated downs are ignored to preserve tracked state.
+    /// A backend error may have occurred after injection; track first, deny
+    /// further input and attempt cleanup instead of assuming no delivery.
     pub fn mouse_down(&mut self, button: MouseButton) -> Result<(), InputError> {
         self.allowed(self.permissions.mouse)?;
-        if !self.buttons.contains(&button) { self.backend.mouse_down(button)?; self.buttons.push(button); }
+        if !self.buttons.contains(&button) {
+            self.buttons.push(button);
+            if let Err(error) = self.backend.mouse_down(button) {
+                self.closed = true; self.permissions = Permissions::default();
+                let _ = self.release(true, true);
+                return Err(InputError::Backend(error));
+            }
+        }
         Ok(())
     }
     /// Release a held button; unknown releases are ignored.
@@ -173,9 +182,18 @@ impl<B: InputBackend> InputController<B> {
     /// the real OS keyboard or keys held by other processes or the human user.
     pub fn is_key_held(&self, key: VirtualKey) -> bool { self.keys.contains(&key) }
     /// Press a virtual key. Repeated downs are ignored, so key-repeat is not generated.
+    /// On a potentially partial backend failure, deny future input and attempt
+    /// cleanup; later `close` retries detectable release failures.
     pub fn key_down(&mut self, key: VirtualKey) -> Result<(), InputError> {
         self.allowed(self.permissions.keyboard)?;
-        if !self.keys.contains(&key) { self.backend.key_down(key)?; self.keys.push(key); }
+        if !self.keys.contains(&key) {
+            self.keys.push(key);
+            if let Err(error) = self.backend.key_down(key) {
+                self.closed = true; self.permissions = Permissions::default();
+                let _ = self.release(true, true);
+                return Err(InputError::Backend(error));
+            }
+        }
         Ok(())
     }
     /// Release a held key; unknown releases are ignored.
@@ -338,5 +356,35 @@ mod tests {
             assert!(matches!(c.key_press(key(17)), Err(InputError::AlreadyPressed)));
         }
         assert_eq!(&*events.borrow(), &["down:Left", "up:Left", "kd:65", "ku:65", "kd:17", "down:Right", "ku:17", "up:Right"]);
+    }
+}
+
+#[cfg(test)]
+mod partial_delivery_tests {
+    use super::*;
+    use std::{cell::{Cell, RefCell}, rc::Rc};
+    struct Partial { events: Rc<RefCell<Vec<&'static str>>>, fail_up: Rc<Cell<bool>> }
+    impl InputBackend for Partial {
+        fn move_to(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn mouse_down(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn mouse_up(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn key_down(&mut self, _: VirtualKey) -> io::Result<()> {
+            self.events.borrow_mut().push("down-maybe-delivered"); Err(io::Error::new(io::ErrorKind::Other, "partial down"))
+        }
+        fn key_up(&mut self, _: VirtualKey) -> io::Result<()> {
+            self.events.borrow_mut().push("release-attempt");
+            if self.fail_up.get() { Err(io::Error::new(io::ErrorKind::Other, "release failed")) } else { Ok(()) }
+        }
+    }
+    #[test]
+    fn partial_down_fails_closed_and_retries_release() {
+        let events = Rc::new(RefCell::new(Vec::new())); let fail_up = Rc::new(Cell::new(true));
+        let mut input = InputController::new(Partial { events: events.clone(), fail_up: fail_up.clone() });
+        input.set_permissions(Permissions { keyboard: true, mouse: false }).unwrap();
+        assert!(input.key_down(VirtualKey::new(65).unwrap()).is_err());
+        assert!(matches!(input.key_down(VirtualKey::new(66).unwrap()), Err(InputError::Closed)));
+        fail_up.set(false); input.close().unwrap();
+        assert_eq!(&*events.borrow(), &["down-maybe-delivered", "release-attempt", "release-attempt"]);
     }
 }

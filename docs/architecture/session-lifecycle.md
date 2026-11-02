@@ -96,3 +96,11 @@ until detectable session/input cleanup succeeds; unresolved drop quarantines
 the arbiter. This remains optional, local-process coordination only: unguarded
 connections, other processes and human input bypass it, and Windows Enigo does
 not report every release failure. These changes are not built or tested.
+
+Input down events now record the intended held key/button before calling the
+backend. If a backend reports a failure after a potentially partial injection,
+the controller denies further input and attempts releases; explicit close can
+retry detectable cleanup failures. This policy assumes exclusive input
+ownership and may itself release a key held by another actor if that assumption
+is false. Windows Enigo still hides some OS failures. The new fake case has not
+been run or validated on a desktop.
