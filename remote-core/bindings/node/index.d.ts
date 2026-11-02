@@ -119,6 +119,8 @@ export class LocalHostSession {
   /** One paced VP9 stream burst, at most 5 seconds and 120 frames. No concurrent host operations. */
   sendVp9Burst(displayIndex: number, confirmViewerVp9: boolean, fps: number, maxFrames: number,
     maxDurationMs: number, captureTimeoutMs: number, sendTimeoutMs: number): Promise<number>;
+  /** Cooperative stop; cannot interrupt a native call or an in-flight send. */
+  requestStopBurst(): void;
   /** Timeout closes the session; requests are untrusted and are not executed automatically. */
   receiveEvent(timeoutMs: number): Promise<LocalHostEvent>;
   sampleWindowsCursor(timeoutMs: number): Promise<boolean>;

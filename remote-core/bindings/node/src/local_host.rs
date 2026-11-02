@@ -71,7 +71,7 @@ impl Drop for ListenerBusy { fn drop(&mut self) { self.0.busy.store(false, Order
 pub struct SessionData { host: NativeHost, id: SessionId, principal: Principal, claims: LoginClaims, approved_displays: Option<Vec<remote_capture::DisplayInfo>>, approval_deadline: Instant }
 struct SessionState {
     data: Mutex<Option<SessionData>>, busy: AtomicBool, lease: Mutex<Option<Lease>>,
-    expiration: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    expiration: Mutex<Option<tokio::task::JoinHandle<()>>>, burst_cancel: AtomicBool,
 }
 impl Drop for SessionState {
     fn drop(&mut self) {
@@ -184,7 +184,7 @@ impl Task for AcceptTask {
     fn resolve(&mut self, _: Env, output: Self::Output) -> Result<LocalHostSession> {
         let lease = self.lease.take().ok_or_else(|| Error::from_reason("host session lease unavailable"))?;
         let deadline = output.approval_deadline;
-        let state = Arc::new(SessionState { data: Mutex::new(Some(output)), busy: AtomicBool::new(false), lease: Mutex::new(Some(lease)), expiration: Mutex::new(None) });
+        let state = Arc::new(SessionState { data: Mutex::new(Some(output)), busy: AtomicBool::new(false), lease: Mutex::new(Some(lease)), expiration: Mutex::new(None), burst_cancel: AtomicBool::new(false) });
         let weak = Arc::downgrade(&state);
         let task = runtime()?.spawn(async move {
             tokio::time::sleep(deadline.saturating_duration_since(Instant::now())).await;
@@ -268,9 +268,15 @@ impl LocalHostSession {
         }
         let send_wait = wait(send_timeout_ms)?;
         let busy = SessionBusy::acquire(&self.state)?;
+        self.state.burst_cancel.store(false, Ordering::Release);
         Ok(AsyncTask::new(SendBurstTask { state: self.state.clone(), _busy: busy, display_index, fps, max_frames,
             max_duration: Duration::from_millis(max_duration_ms.into()), capture_wait: Duration::from_millis(capture_timeout_ms.into()), send_wait }))
     }
+    /// Cooperatively stop a running/queued VP9 burst. This never blocks and
+    /// can be called while another operation is active; it cannot interrupt a
+    /// native capture or in-flight send. Await the burst before closing.
+    #[napi]
+    pub fn request_stop_burst(&self) { self.state.burst_cancel.store(true, Ordering::Release); }
     /// Sample the current Windows cursor after consent and send shape/position.
     /// Returns false if hidden/unavailable. Non-Windows platforms reject this
     /// method. Does not support secure desktop or portable-service capture.
@@ -418,14 +424,16 @@ impl Task for SendBurstTask {
         let mut cadence = FrameCadence::new(self.fps).map_err(js_error)?;
         let started = Instant::now();
         let end = started.checked_add(self.max_duration).ok_or_else(|| Error::from_reason("invalid burst deadline"))?;
+        if self.state.burst_cancel.load(Ordering::Acquire) { return Ok(0); }
         let mut pump = session.host.start_capture(display, display_wire, config, POSTAUTH).map_err(js_error)?;
         let result = (|| -> Result<u32> {
             let mut sent = 0;
             while sent < self.max_frames {
+                if self.state.burst_cancel.load(Ordering::Acquire) { break; }
                 let now = Instant::now();
                 if now >= end { break; }
                 if let Some(delay) = cadence.remaining(now).map_err(js_error)? {
-                    std::thread::sleep(delay.min(end.saturating_duration_since(now)));
+                    std::thread::sleep(delay.min(end.saturating_duration_since(now)).min(Duration::from_millis(50)));
                     continue;
                 }
                 cadence.begin_attempt(now).map_err(js_error)?;
@@ -434,7 +442,7 @@ impl Task for SendBurstTask {
                 let current = remote_capture::displays().map_err(js_error)?.into_iter().nth(index).ok_or_else(|| Error::from_reason("display is no longer available"))?;
                 if current.info() != &approved { return Err(Error::from_reason("display enumeration changed; re-approval required")); }
                 let remaining = end.saturating_duration_since(Instant::now());
-                if remaining.is_zero() { break; }
+                if remaining.is_zero() || self.state.burst_cancel.load(Ordering::Acquire) { break; }
                 let pts = i64::try_from(started.elapsed().as_millis()).map_err(js_error)?;
                 match rt.block_on(session.host.send_capture(&mut pump, self.capture_wait.min(remaining), self.send_wait.min(remaining), pts)) {
                     Ok(()) => sent += 1,
