@@ -51,8 +51,13 @@ async fn password_owner_approval_and_input_share_owned_stream() {
     assert_eq!(claims.unwrap().peer_id, "unverified-peer");
     assert_eq!(admission.active().unwrap(), 1);
     let permissions = Permissions { control_mouse: true, ..Default::default() };
-    let mut approval = OwnerApproval::new(id, principal, Some(permissions));
-    host.authorize(permissions, &mut approval).unwrap();
+    let broker = remote_security::approval::ApprovalBroker::new(1).unwrap();
+    let mut ticket = host.request_owner_approval(&broker, principal, permissions, WAIT).unwrap();
+    assert!(host.authorize_with_ticket(&mut ticket, permissions).unwrap().is_none());
+    let visible = broker.pending().unwrap(); assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].peer_label, "unverified-name");
+    broker.decide(ticket.key(), Some(permissions)).unwrap();
+    assert!(host.authorize_with_ticket(&mut ticket, permissions).unwrap().is_some());
     assert_eq!(host.state(), SessionState::Connected);
     assert_eq!(admission.active().unwrap(), 0);
     let peer = remote_protocol::desktop::PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };

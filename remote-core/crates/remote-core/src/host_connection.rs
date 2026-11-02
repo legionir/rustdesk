@@ -65,6 +65,8 @@ pub enum ConnectionError {
     InvalidClaims,
     UnexpectedMessage,
     Admission(AdmissionError),
+    /// Local approval handoff failed; this is not proof of trusted UI.
+    Approval(remote_security::approval::ApprovalError),
     Protocol(ProtocolError),
     Network(NetworkTransportError),
     Host(HostInputError),
@@ -90,6 +92,7 @@ impl fmt::Display for ConnectionError {
             Self::InvalidClaims => f.write_str("invalid untrusted login claims"),
             Self::UnexpectedMessage => f.write_str("unexpected message for this connection state"),
             Self::Admission(e) => write!(f, "admission: {e}"),
+            Self::Approval(e) => write!(f, "owner approval: {e}"),
             Self::Protocol(e) => write!(f, "protocol: {e}"),
             Self::Network(e) => write!(f, "network: {e}"),
             Self::Host(e) => write!(f, "host: {e}"),
@@ -208,6 +211,36 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.login = Some(PendingLogin { claims: claims.clone(), response: Zeroizing::new(login.password_response.to_vec()), decoding });
         self.phase = Phase::PendingApproval;
         Ok(claims)
+    }
+    /// Create an optional in-process owner-decision handoff for this pending
+    /// connection. The request label is an untrusted peer claim. The broker is
+    /// not a UI or IPC security boundary; the embedding application must secure
+    /// that channel and retain/drop the ticket on disconnect.
+    pub fn request_owner_approval(&self, broker: &remote_security::approval::ApprovalBroker,
+        principal: remote_session::Principal, requested: Permissions, lifetime: Duration)
+        -> Result<remote_security::approval::ApprovalTicket, ConnectionError> {
+        if self.phase != Phase::PendingApproval { return Err(ConnectionError::InvalidState); }
+        let permit = self.permit.as_ref().ok_or(ConnectionError::InvalidState)?;
+        permit.check_live()?;
+        let label = self.login.as_ref().ok_or(ConnectionError::InvalidState)?.claims.peer_name.clone();
+        let lifetime = lifetime.min(permit.remaining());
+        broker.request(self.host.id(), principal, label, requested, lifetime).map_err(ConnectionError::Approval)
+    }
+    /// Poll a broker decision and, when present, consume it along with the
+    /// password challenge. No network work or UI is driven by this method.
+    /// An expired/missing ticket fails closed and aborts the connection.
+    pub fn authorize_with_ticket(&mut self, ticket: &mut remote_security::approval::ApprovalTicket,
+        requested: Permissions) -> Result<Option<LoginClaims>, ConnectionError> {
+        if self.phase != Phase::PendingApproval || ticket.key().session() != self.host.id() { return Err(ConnectionError::InvalidState); }
+        let live = self.permit.as_ref().ok_or(ConnectionError::InvalidState)?.check_live();
+        if let Err(error) = live { self.abort(); return Err(ConnectionError::Admission(error)); }
+        let policy = match ticket.take_decision() {
+            Ok(Some(policy)) => policy,
+            Ok(None) => return Ok(None),
+            Err(error) => { self.abort(); return Err(ConnectionError::Approval(error)); },
+        };
+        let mut policy = policy;
+        self.authorize(requested, &mut policy).map(Some)
     }
     /// Complete password verification and the trusted caller's local approval.
     /// The policy receives the verifier's configured principal, not proof of a
