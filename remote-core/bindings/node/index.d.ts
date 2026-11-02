@@ -60,7 +60,7 @@ export interface ViewerPeerInfo {
 export interface ViewerMessage {
   kind: 'video' | 'cursorShape' | 'cursorId' | 'cursorPosition' | 'testDelay' | 'peerInfo' | 'displayChanged' | 'permission' | 'other';
   data?: Buffer; display?: number; codec?: string; cursorId?: string;
-  x?: number; y?: number; hotx?: number; hoty?: number; width?: number; height?: number;
+  x?: number; y?: number; hotx?: number; hoty?: number; width?: number; height?: number; cursorEmbedded?: boolean;
   peer?: ViewerPeerInfo; permission?: number; enabled?: boolean;
 }
 export interface ViewerDecodingOptions {
