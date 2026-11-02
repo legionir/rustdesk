@@ -12,6 +12,8 @@
 pub mod admission;
 /// Optional bounded in-process local owner-decision handoff (not an OS UI).
 pub mod approval;
+/// Optional source-derived failure counters; not integrated into login policy.
+pub mod source_failure_counters;
 
 use remote_session::{Authenticator, Authorizer, Credential, Permissions, Principal, SessionId};
 use sha2::{Digest, Sha256};
