@@ -189,22 +189,25 @@ impl Task for AcceptTask {
         let task = runtime()?.spawn(async move {
             tokio::time::sleep(deadline.saturating_duration_since(Instant::now())).await;
             loop {
-                let Some(state) = weak.upgrade() else { return; };
-                // Never block a runtime thread on a synchronous mutex. If an
-                // approval is running, its own expiry checks remain decisive.
-                match state.data.try_lock() {
-                    Ok(mut data) => {
-                        let pending = data.as_ref().map_or(false, |session| matches!(session.host.state(), remote_session::SessionState::Authenticating | remote_session::SessionState::Closed | remote_session::SessionState::Failed));
-                        if pending {
-                            if let Some(mut session) = data.take() { let _ = session.host.close(); }
-                            if let Ok(mut lease) = state.lease.lock() { lease.take(); }
-                        }
-                        return;
-                    },
-                    Err(std::sync::TryLockError::Poisoned(_)) => return,
-                    Err(std::sync::TryLockError::WouldBlock) => {},
-                }
-                drop(state);
+                // Scope all synchronous lock guards before the next await, so
+                // the timer never blocks a Tokio worker or carries a guard.
+                let retry = {
+                    let Some(state) = weak.upgrade() else { return; };
+                    let result = match state.data.try_lock() {
+                        Ok(mut data) => {
+                            let pending = data.as_ref().map_or(false, |session| matches!(session.host.state(), remote_session::SessionState::Authenticating | remote_session::SessionState::Closed | remote_session::SessionState::Failed));
+                            if pending {
+                                if let Some(mut session) = data.take() { let _ = session.host.close(); }
+                                if let Ok(mut lease) = state.lease.lock() { lease.take(); }
+                            }
+                            false
+                        },
+                        Err(std::sync::TryLockError::Poisoned(_)) => false,
+                        Err(std::sync::TryLockError::WouldBlock) => true,
+                    };
+                    result
+                };
+                if !retry { return; }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         });
