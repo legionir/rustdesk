@@ -8,7 +8,7 @@
 //! alone. This module has not been built, tested, or security-audited.
 
 use futures_util::{SinkExt, StreamExt};
-use remote_transport::{NetworkTransport, NetworkTransportError, TransportFuture};
+use remote_transport::{AdjustableNetworkTransport, NetworkTransport, NetworkTransportError, TransportFuture};
 use std::{error::Error, fmt, sync::Arc, time::Duration};
 use tokio::{net::TcpStream, time::timeout};
 use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
@@ -178,6 +178,26 @@ impl StrictWss {
     /// Drop without waiting for a close handshake or delivery acknowledgement.
     pub fn close(&mut self) { self.socket.take(); }
 }
+impl AdjustableNetworkTransport for StrictWss {
+    /// Change tungstenite's actual frame and reassembled-message limits while
+    /// no operation is in flight. Already buffered data and native TLS/HTTP
+    /// allocations are not retroactively bounded. For encrypted wrapping the
+    /// caller must account for secretbox overhead. This code is untested.
+    fn set_max_message_size(&mut self, maximum: usize) -> Result<(), NetworkTransportError> {
+        if maximum == 0 || maximum > MAX_MESSAGE_BYTES {
+            return Err(NetworkTransportError::InvalidRequest("invalid WSS frame limit".into()));
+        }
+        let socket = self.socket.as_mut().ok_or(NetworkTransportError::Closed)?;
+        socket.set_config(|config| {
+            config.max_message_size = Some(maximum);
+            config.max_frame_size = Some(maximum);
+            // write_buffer_size is configured as zero at connection time.
+            config.max_write_buffer_size = maximum + 64 * 1024;
+        });
+        self.max_message_size = maximum;
+        Ok(())
+    }
+}
 impl NetworkTransport for StrictWss {
     fn send<'a>(&'a mut self, bytes: &'a [u8], deadline: Duration) -> TransportFuture<'a, Result<(), NetworkTransportError>> {
         Box::pin(async move {
@@ -251,6 +271,18 @@ mod tests {
         let mut client = StrictWss::connect_with_config(url, 1024, WAIT, test_roots()).await.unwrap();
         client.send(b"synthetic", WAIT).await.unwrap();
         assert_eq!(client.receive(WAIT).await.unwrap(), b"synthetic");
+        finish(task).await;
+    }
+    #[tokio::test]
+    async fn framing_limit_changes_are_applied_to_future_operations() {
+        let (port, task) = test_server(false).await;
+        let url = endpoint(&format!("wss://localhost:{port}/")).unwrap();
+        let mut client = StrictWss::connect_with_config(url, 1024, WAIT, test_roots()).await.unwrap();
+        client.set_max_message_size(2).unwrap();
+        assert!(matches!(client.send(b"abc", WAIT).await, Err(WssError::MessageTooLarge { .. })));
+        client.set_max_message_size(1024).unwrap();
+        client.send(b"abc", WAIT).await.unwrap();
+        assert_eq!(client.receive(WAIT).await.unwrap(), b"abc");
         finish(task).await;
     }
     #[tokio::test]
