@@ -602,6 +602,45 @@ pub mod video {
         pub frame: DecodedFrame<'a>,
     }
 
+    /// H.264/H.265 RAM decoder for trusted RustDesk video envelopes.
+    /// Compressed dimensions and driver allocations are not bounded or sandboxed.
+    #[cfg(feature = "hwcodec")]
+    pub struct HardwareVideoReceiver {
+        decoder: remote_codec::hardware::HardwareDecoder,
+        codec: remote_codec::hardware::HardwareCodec,
+        max_envelope_bytes: usize,
+    }
+    #[cfg(feature = "hwcodec")]
+    impl HardwareVideoReceiver {
+        /// Create a source-selected RAM decoder. No capability negotiation is performed.
+        pub fn new(codec: remote_codec::hardware::HardwareCodec, max_envelope_bytes: usize) -> Result<Self, VideoError> {
+            if max_envelope_bytes == 0 || max_envelope_bytes > MAX_ENVELOPE_BYTES {
+                return Err(VideoError::Protocol(ProtocolError::InvalidLimit));
+            }
+            Ok(Self { decoder: remote_codec::hardware::HardwareDecoder::new(codec)?, codec, max_envelope_bytes })
+        }
+        /// Decode a trusted H.264/H.265 envelope; untrusted network data is unsafe.
+        pub fn decode(&mut self, bytes: &[u8]) -> Result<Option<VideoImage<'_>>, VideoError> {
+            let envelope = Envelope::decode(bytes, self.max_envelope_bytes)?;
+            let view = envelope.video()?;
+            let expected = match self.codec {
+                remote_codec::hardware::HardwareCodec::H264 => VideoCodec::H264,
+                remote_codec::hardware::HardwareCodec::H265 => VideoCodec::H265,
+            };
+            if view.codec != expected { return Err(VideoError::CodecMismatch); }
+            let display = view.display;
+            let packets = view.packets().map(|p| Packet { data: p.data.to_vec(), key: p.key, pts: p.pts }).collect();
+            let frame = remote_codec::hardware::HardwareFrame { codec: self.codec, packets };
+            Ok(self.decoder.decode(&frame)?.map(|frame| VideoImage { display, frame }))
+        }
+        /// Receive then decode a trusted envelope from an external stream.
+        /// This does not authenticate the sender or harden the native decoder.
+        pub async fn receive_network(&mut self, transport: &mut dyn remote_transport::NetworkTransport, deadline: Duration) -> Result<Option<VideoImage<'_>>, VideoError> {
+            let bytes = transport.receive(deadline).await?;
+            self.decode(&bytes)
+        }
+    }
+
     /// Software decoder for RustDesk video envelopes.
     ///
     /// Only use with trusted, authenticated input in a controlled environment.

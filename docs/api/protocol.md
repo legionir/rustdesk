@@ -67,3 +67,9 @@ Claims are untrusted and are not runtime probes. RustDesk's SupportedEncoding
 has no VP9 flag; do not infer a working encoder solely from the schema. The
 source protobuf remains the wire format, not a new protocol. These adapters are
 not built or tested.
+
+The optional `HardwareVideoReceiver` can pass H.264/H.265 wire packets to the
+source RAM decoder when a configured backend is available. Packet count/size
+limits do not stop native decoder or driver allocations determined by the
+bitstream. It must only process trusted data until the decoder is sandboxed and
+reviewed. No real-GPU, compatibility or adversarial tests have run.

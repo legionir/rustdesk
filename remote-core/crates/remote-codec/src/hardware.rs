@@ -7,9 +7,9 @@
 //! decode video or guarantee hardware acceleration for a particular backend.
 //! No build or hardware tests have been run. Do not use for untrusted input.
 
-use crate::{codec_error, invalid, PackedFormat, Packet};
-use base::message_proto::video_frame;
-use scrap::{codec::{Encoder, EncoderCfg}, hwcodec::{HwRamEncoder, HwRamEncoderConfig}, CodecFormat, EncodeInput, EncodeYuvFormat, Pixfmt};
+use crate::{codec_error, invalid, DecodedFrame, PackedFormat, Packet};
+use base::message_proto::{video_frame, EncodedVideoFrame, EncodedVideoFrames};
+use scrap::{codec::{Decoder, Encoder, EncoderCfg}, hwcodec::{HwRamEncoder, HwRamEncoderConfig}, CodecFormat, EncodeInput, EncodeYuvFormat, ImageFormat, ImageRgb, ImageTexture, Pixfmt};
 use std::io;
 
 /// Hard ceiling for the adapter-owned NV12 buffer, not driver allocations.
@@ -135,6 +135,48 @@ impl HardwareEncoder {
     }
 }
 
+/// RAM-backed H.264/H.265 decoder using the RustDesk source backend.
+///
+/// The native decoder can allocate based on compressed dimensions before this
+/// wrapper sees them. Packet limits do **not** make untrusted bitstreams safe;
+/// use only trusted synthetic/local inputs until sandboxing and audit exist.
+pub struct HardwareDecoder {
+    native: Decoder,
+    codec: HardwareCodec,
+    rgb: ImageRgb,
+    texture: ImageTexture,
+}
+impl HardwareDecoder {
+    /// Create a RAM decoder selected by the source cached hardware config.
+    /// Passing no GPU LUID deliberately avoids the source VRAM decoder path.
+    pub fn new(codec: HardwareCodec) -> io::Result<Self> {
+        let native = Decoder::new(codec.source(), None);
+        if !native.valid() { return Err(io::Error::new(io::ErrorKind::NotFound, "source hardware decoder unavailable")); }
+        Ok(Self { native, codec, rgb: ImageRgb::new(ImageFormat::ARGB, 1), texture: ImageTexture::default() })
+    }
+    /// Decode one batch of trusted source-format packets.
+    /// The returned pixels borrow the decoder until its next operation.
+    pub fn decode(&mut self, input: &HardwareFrame) -> io::Result<Option<DecodedFrame<'_>>> {
+        if input.codec != self.codec || input.packets.is_empty() || input.packets.len() > 1024 {
+            return Err(invalid("invalid hardware codec or packet count"));
+        }
+        let mut total = 0usize;
+        let mut packets = Vec::with_capacity(input.packets.len());
+        for packet in &input.packets {
+            total = total.checked_add(packet.data.len()).ok_or_else(|| invalid("packet length overflow"))?;
+            if packet.data.is_empty() || total > 16 * 1024 * 1024 { return Err(invalid("invalid or oversized packet batch")); }
+            packets.push(EncodedVideoFrame { data: packet.data.clone().into(), key: packet.key, pts: packet.pts, ..Default::default() });
+        }
+        let frames = EncodedVideoFrames { frames: packets.into(), ..Default::default() };
+        let wire = match self.codec { HardwareCodec::H264 => video_frame::Union::H264s(frames), HardwareCodec::H265 => video_frame::Union::H265s(frames) };
+        let mut pixelbuffer = true;
+        let mut chroma = None;
+        if !self.native.handle_video_frame(&wire, &mut self.rgb, &mut self.texture, &mut pixelbuffer, &mut chroma).map_err(codec_error)? { return Ok(None); }
+        if !pixelbuffer { return Err(codec_error("unexpected GPU texture from RAM decoder")); }
+        Ok(Some(DecodedFrame { width: self.rgb.w, height: self.rgb.h, data: &self.rgb.raw }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +197,8 @@ mod tests {
             width: 64, height: 64, quality: 1.0, keyframe_interval: Some(30) }).expect("hardware codec available");
         let frame = encoder.encode_packed(&vec![128; 64 * 64 * 4], 64 * 4, PackedFormat::Bgra, 0).unwrap();
         assert!(!frame.packets.is_empty());
+        let mut decoder = HardwareDecoder::new(HardwareCodec::H264).expect("hardware RAM decoder available");
+        let image = decoder.decode(&frame).unwrap().expect("decoded image");
+        assert_eq!((image.width, image.height), (64, 64));
     }
 }
