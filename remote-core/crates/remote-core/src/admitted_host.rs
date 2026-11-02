@@ -52,3 +52,47 @@ pub async fn accept<T: AdjustableNetworkTransport, B: InputBackend>(
     let secured = accept_pinned_host(transport, host_id, signing_key, MAX_PRE_AUTH_BYTES, wait).await.map_err(AcceptError::Handshake)?;
     HostConnection::new(secured, id, backend, verifier, permit, MAX_PRE_AUTH_BYTES).map_err(AcceptError::Connection)
 }
+
+/// Errors in pre-admitted WSS transport setup or the source host handshake.
+#[derive(Debug)]
+pub enum WssAcceptError {
+    Admission(AdmissionError),
+    Transport(remote_rustdesk_websocket::wss_server::WssServerError),
+    Host(AcceptError),
+}
+impl fmt::Display for WssAcceptError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Admission(e) => write!(f, "admission: {e}"),
+            Self::Transport(e) => write!(f, "WSS setup: {e}"),
+            Self::Host(e) => write!(f, "source host setup: {e}"),
+        }
+    }
+}
+impl Error for WssAcceptError {}
+
+/// Apply a caller-acquired admission permit *before* the TLS and WebSocket
+/// upgrade, then perform the pinned source host handshake. Both upgrades share
+/// a total deadline and the admission grace; the returned host still requires
+/// password validation and trusted local owner approval. The caller supplies a
+/// reviewed TLS certificate/configuration, observed peer IP and listener policy.
+/// This adapter performs no HTTP origin/path, relay, client identity, DoS or
+/// consent policy. It is unbuilt, untested and not safe to expose publicly.
+/// Cancellation drops the socket and permit; a failed setup is not retried.
+pub async fn accept_wss<B: InputBackend>(
+    stream: tokio::net::TcpStream,
+    tls: std::sync::Arc<remote_rustdesk_websocket::wss_server::ServerTlsConfig>,
+    permit: AdmissionPermit, id: SessionId, backend: B, verifier: PasswordVerifier,
+    host_id: &str, signing_key: &sign::SecretKey, deadline: Duration,
+    acknowledge: remote_rustdesk_websocket::wss_server::WssServerOptIn,
+) -> Result<HostConnection<EncryptedTransport<remote_rustdesk_websocket::wss_server::StrictWssServer>, B>, WssAcceptError> {
+    permit.check_live().map_err(WssAcceptError::Admission)?;
+    let wait = deadline.min(permit.remaining());
+    if wait.is_zero() { return Err(WssAcceptError::Admission(AdmissionError::Expired)); }
+    let end = std::time::Instant::now().checked_add(wait).ok_or(WssAcceptError::Admission(AdmissionError::Expired))?;
+    let transport = remote_rustdesk_websocket::wss_server::StrictWssServer::accept(stream, tls, MAX_PRE_AUTH_BYTES + 16, wait, acknowledge)
+        .await.map_err(WssAcceptError::Transport)?;
+    let remaining = end.saturating_duration_since(std::time::Instant::now());
+    if remaining.is_zero() { return Err(WssAcceptError::Admission(AdmissionError::Expired)); }
+    accept(transport, permit, id, backend, verifier, host_id, signing_key, remaining).await.map_err(WssAcceptError::Host)
+}

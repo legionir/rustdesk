@@ -8,7 +8,9 @@ use futures_util::{SinkExt, StreamExt};
 use remote_transport::{AdjustableNetworkTransport, NetworkTransport, NetworkTransportError, TransportFuture};
 use std::{error::Error, fmt, sync::Arc, time::Duration};
 use tokio::{net::TcpStream, time::timeout};
-use tokio_rustls::{rustls::ServerConfig, server::TlsStream, TlsAcceptor};
+use tokio_rustls::{server::TlsStream, TlsAcceptor};
+/// Caller-provisioned rustls server policy; certificates and authorization are external.
+pub use tokio_rustls::rustls::ServerConfig as ServerTlsConfig;
 use tokio_tungstenite::{accept_async_with_config, tungstenite::{protocol::WebSocketConfig, Message}, WebSocketStream};
 
 const MAX_CONTROL_FRAMES: usize = 32;
@@ -43,7 +45,7 @@ impl StrictWssServer {
     /// origin, subprotocol and headers are not checked. No handshake CPU or
     /// aggregate connection bounds beyond the caller's policy are supplied.
     /// Cancellation, timeout or error drops the owned socket.
-    pub async fn accept(stream: TcpStream, tls: Arc<ServerConfig>, maximum: usize, deadline: Duration, _ack: WssServerOptIn) -> Result<Self, WssServerError> {
+    pub async fn accept(stream: TcpStream, tls: Arc<ServerTlsConfig>, maximum: usize, deadline: Duration, _ack: WssServerOptIn) -> Result<Self, WssServerError> {
         if maximum == 0 || maximum > MAX_MESSAGE_BYTES { return Err(WssServerError::InvalidLimit); }
         if deadline.is_zero() { return Err(WssServerError::InvalidDeadline); }
         let config = WebSocketConfig::default().read_buffer_size(16 * 1024).write_buffer_size(0)
@@ -113,9 +115,9 @@ mod tests {
     const CA: &[u8] = include_bytes!("../fixtures/test-ca.der");
     const CERT: &[u8] = include_bytes!("../fixtures/test-server.der");
     const KEY: &[u8] = include_bytes!("../fixtures/test-server-key.der");
-    fn configs() -> (Arc<ServerConfig>, Arc<rustls::ClientConfig>) {
+    fn configs() -> (Arc<ServerTlsConfig>, Arc<rustls::ClientConfig>) {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let server = ServerConfig::builder_with_provider(provider).with_safe_default_protocol_versions().unwrap()
+        let server = ServerTlsConfig::builder_with_provider(provider).with_safe_default_protocol_versions().unwrap()
             .with_no_client_auth().with_single_cert(vec![CertificateDer::from(CERT.to_vec())],
                 PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY.to_vec()))).unwrap();
         let mut roots = RootCertStore::empty(); roots.add(CertificateDer::from(CA.to_vec())).unwrap();
