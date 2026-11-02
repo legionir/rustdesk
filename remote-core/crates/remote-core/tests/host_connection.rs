@@ -287,6 +287,10 @@ async fn video_controls_reach_authorized_scheduler_but_are_not_executed() {
     let event = Envelope::capture_displays_event(&request).unwrap();
     let (sent, received) = tokio::join!(viewer.send_display_control(&event, WAIT), host.receive_event(WAIT));
     sent.unwrap(); assert!(matches!(received.unwrap(), HostEvent::CaptureDisplaysRequest { value, .. } if value == request));
+    let update = PeerInfo { username: "".into(), hostname: "".into(), platform: "".into(), version: "".into(),
+        displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
+    let (sent, received) = tokio::join!(host.send_peer_info_update(&update, WAIT), viewer.receive(WAIT));
+    sent.unwrap(); assert!(matches!(received.unwrap(), ViewerEvent::PeerInfo(value) if value == update));
     let notice = DisplaySwitch { display: 1, x: -1920, y: 0, width: 1920, height: 1080, cursor_embedded: false };
     let (sent, received) = tokio::join!(host.send_display_change(&notice, WAIT), viewer.receive(WAIT));
     sent.unwrap(); assert!(matches!(received.unwrap(), ViewerEvent::DisplayChanged { value, .. } if value == notice));

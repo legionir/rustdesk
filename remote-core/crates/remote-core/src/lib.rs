@@ -24,6 +24,8 @@ pub mod video_streams;
 pub mod video_schedule;
 /// Caller-driven planning for source multi-display subscriptions.
 pub mod display_selection;
+/// Construct bounded metadata from explicitly enumerated display handles.
+pub mod display_metadata;
 /// Experimental Windows DXGI/VRAM session-bound capture.
 #[cfg(all(target_os = "windows", feature = "vram"))]
 pub mod vram_pump;

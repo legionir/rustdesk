@@ -467,6 +467,18 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.phase = Phase::Authorized;
         Ok(true)
     }
+    /// Send a bounded standalone source PeerInfo update. Caller supplies an
+    /// approved current snapshot and coordinates capture/decoder refresh. This
+    /// does not guarantee the topology has remained unchanged since enumeration.
+    pub async fn send_peer_info_update(&mut self, info: &remote_protocol::desktop::PeerInfo, deadline: Duration) -> Result<(), ConnectionError> {
+        if self.phase != Phase::Authorized || deadline.is_zero() || !self.host.permissions().view_screen { return Err(ConnectionError::InvalidState); }
+        let wire = Envelope::desktop_peer_info_event(info).map_err(ConnectionError::Desktop)?.encode(self.max_post_auth_bytes)?;
+        self.phase = Phase::Busy;
+        match self.transport.send(&wire, deadline).await {
+            Ok(()) => { self.phase = Phase::Authorized; Ok(()) },
+            Err(error) => { self.abort(); Err(ConnectionError::Network(error)) },
+        }
+    }
     /// Send a source display-change notice on this same ordered stream. Caller
     /// must supply current authorized metadata and coordinate capture/decoder
     /// recreation; this method never changes an OS display or resolution.
