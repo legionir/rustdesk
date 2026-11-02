@@ -136,3 +136,8 @@ real input/cursor behavior remain unverified. The Node addon now exposes
 cursor-wire utilities and a narrow pinned direct-TCP viewer with compressed
 video events and mouse sends; it is not a complete SDK. All additions since
 local-transport CI remain unbuilt, untested and unaudited. No CI was triggered.
+
+A detailed evidence-based list of remaining acceptance work is in
+`docs/analysis/remaining-core-work.md`. The candidate export records the exact
+source/prototype commits and archive hashes in `SOURCE_PROVENANCE.md`; it is not
+a versioned repository, tested build, dependency lock or licensing decision.

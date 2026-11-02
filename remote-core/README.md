@@ -252,5 +252,8 @@ capture pump and trusted local VP9 decode. It binds loopback only and captures a
 real screen; it requires an explicit command-line confirmation, an interactive
 disposable Windows desktop and native dependencies. It is written but **not
 built or run**; it is not a production security demonstration. Command after
-extraction and review: `cargo run --manifest-path remote-core/Cargo.toml -p
-remote-core --example windows_loopback_session -- --confirm-local-screen-capture`.
+extraction and review:
+
+```powershell
+cargo run --manifest-path remote-core/Cargo.toml -p remote-core --example windows_loopback_session -- --confirm-local-screen-capture
+```
