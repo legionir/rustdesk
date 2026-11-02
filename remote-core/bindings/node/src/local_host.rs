@@ -68,8 +68,18 @@ impl ListenerBusy {
     }
 }
 impl Drop for ListenerBusy { fn drop(&mut self) { self.0.busy.store(false, Ordering::Release); } }
-pub struct SessionData { host: NativeHost, id: SessionId, principal: Principal, claims: LoginClaims, approved_displays: Option<Vec<remote_capture::DisplayInfo>> }
-struct SessionState { data: Mutex<Option<SessionData>>, busy: AtomicBool, lease: Mutex<Option<Lease>> }
+pub struct SessionData { host: NativeHost, id: SessionId, principal: Principal, claims: LoginClaims, approved_displays: Option<Vec<remote_capture::DisplayInfo>>, approval_deadline: Instant }
+struct SessionState {
+    data: Mutex<Option<SessionData>>, busy: AtomicBool, lease: Mutex<Option<Lease>>,
+    expiration: Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+impl Drop for SessionState {
+    fn drop(&mut self) {
+        if let Ok(expiration) = self.expiration.get_mut() {
+            if let Some(task) = expiration.take() { task.abort(); }
+        }
+    }
+}
 struct SessionBusy(Arc<SessionState>);
 impl SessionBusy {
     fn acquire(state: &Arc<SessionState>) -> Result<Self> {
@@ -168,12 +178,38 @@ impl Task for AcceptTask {
             let verifier = PasswordVerifier::new(id, principal.clone(), &data.password, &salt, remaining(end)?).map_err(js_error)?;
             let mut host = admitted_host::accept(socket, permit, id, NoInput, verifier, &data.host_id, &data.secret, remaining(end)?).await.map_err(js_error)?;
             let claims = host.receive_password_login(remaining(end)?).await.map_err(js_error)?;
-            Ok(SessionData { host, id, principal, claims, approved_displays: None })
+            Ok(SessionData { host, id, principal, claims, approved_displays: None, approval_deadline: end })
         })
     }
     fn resolve(&mut self, _: Env, output: Self::Output) -> Result<LocalHostSession> {
         let lease = self.lease.take().ok_or_else(|| Error::from_reason("host session lease unavailable"))?;
-        Ok(LocalHostSession { state: Arc::new(SessionState { data: Mutex::new(Some(output)), busy: AtomicBool::new(false), lease: Mutex::new(Some(lease)) }) })
+        let deadline = output.approval_deadline;
+        let state = Arc::new(SessionState { data: Mutex::new(Some(output)), busy: AtomicBool::new(false), lease: Mutex::new(Some(lease)), expiration: Mutex::new(None) });
+        let weak = Arc::downgrade(&state);
+        let task = runtime()?.spawn(async move {
+            tokio::time::sleep(deadline.saturating_duration_since(Instant::now())).await;
+            loop {
+                let Some(state) = weak.upgrade() else { return; };
+                // Never block a runtime thread on a synchronous mutex. If an
+                // approval is running, its own expiry checks remain decisive.
+                match state.data.try_lock() {
+                    Ok(mut data) => {
+                        let pending = data.as_ref().map_or(false, |session| matches!(session.host.state(), remote_session::SessionState::Authenticating | remote_session::SessionState::Closed | remote_session::SessionState::Failed));
+                        if pending {
+                            if let Some(mut session) = data.take() { let _ = session.host.close(); }
+                            if let Ok(mut lease) = state.lease.lock() { lease.take(); }
+                        }
+                        return;
+                    },
+                    Err(std::sync::TryLockError::Poisoned(_)) => return,
+                    Err(std::sync::TryLockError::WouldBlock) => {},
+                }
+                drop(state);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        });
+        *state.expiration.lock().map_err(|_| Error::from_reason("host expiration state poisoned"))? = Some(task);
+        Ok(LocalHostSession { state })
     }
 }
 
@@ -232,6 +268,7 @@ impl LocalHostSession {
         if let Some(session) = data.as_mut() { session.host.close().map_err(js_error)?; }
         data.take();
         self.state.lease.lock().map_err(|_| Error::from_reason("host session lease poisoned"))?.take();
+        if let Some(task) = self.state.expiration.lock().map_err(|_| Error::from_reason("host expiration state poisoned"))?.take() { task.abort(); }
         Ok(())
     }
 }

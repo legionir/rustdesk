@@ -112,9 +112,9 @@ input message is received. The password and ephemeral key must not be logged;
 JS strings and process memory can retain sensitive copies. A loopback address
 is not proof that another local process is trusted. There is no trusted consent
 UI, controller authentication, production key provisioning, brute-force
-policy or security audit. Abandoned pending connections must be closed by the
-application: expiration is checked on approval but does not itself close the
-socket in the background.
+policy or security audit. An experimental timer closes an abandoned pending
+session at the original accept deadline; approval also checks expiration.
+Explicit close is still required, and timer/cancellation behavior is untested.
 
 After approval, `sendOneVp9Frame` explicitly opts into a single software VP9
 capture/send, opens a fresh capture handle and encoder, and stops them after the
