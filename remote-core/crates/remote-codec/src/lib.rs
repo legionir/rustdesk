@@ -3,6 +3,10 @@
 //! This API is not hardened for untrusted bitstreams. It does not yet provide
 //! all RustDesk codecs, negotiation, hardware acceleration or recovery policy.
 
+mod source_video_qos;
+/// Bounded, explicitly configured wrapper for the source video QoS algorithm.
+pub mod video_qos;
+
 /// Process-global source codec negotiation adapter.
 pub mod negotiation;
 
