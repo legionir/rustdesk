@@ -112,3 +112,40 @@ async fn provisional_host_and_viewer_login_then_mouse() {
     assert_eq!(&*calls.lock().unwrap(), &["move:7,-4"]);
     viewer.close(); host.close().unwrap();
 }
+
+#[tokio::test]
+async fn strict_pinned_exchange_then_password_approval_and_input() {
+    use hbb_common::sodiumoxide::{self, crypto::sign};
+    use remote_core::viewer_connection::{LoginIdentity, ViewerConnection};
+    use remote_protocol::desktop::PeerInfo;
+    use remote_rustdesk_websocket::source_crypto::{accept_pinned_host, connect_pinned_host};
+    sodiumoxide::init().unwrap();
+    let (socket, viewer_socket) = sockets().await;
+    let (host_public, host_secret) = sign::gen_keypair();
+    let (host_socket, viewer_socket) = tokio::join!(
+        accept_pinned_host(socket, "expected-host", &host_secret, LIMIT - 16, WAIT),
+        connect_pinned_host(viewer_socket, "expected-host", &host_public, LIMIT - 16, WAIT));
+    let admission = AdmissionController::new(AdmissionLimits::default()).unwrap();
+    let permit = admission.admit("127.0.0.1".parse().unwrap()).unwrap();
+    let id = SessionId::new([10; 16]).unwrap();
+    let principal = Principal::new("password-holder".into()).unwrap();
+    let verifier = PasswordVerifier::new(id, principal.clone(), "shared-test-secret", "salt", WAIT).unwrap();
+    let fake = Fake::default(); let calls = fake.0.clone();
+    let mut host = HostConnection::new(host_socket.unwrap(), id, fake, verifier, permit, LIMIT - 16).unwrap();
+    let mut viewer = ViewerConnection::new(viewer_socket.unwrap(), LIMIT - 16).unwrap();
+    let identity = LoginIdentity { target: "expected-host".into(), viewer_id: "unverified".into(), viewer_name: "viewer".into(), wire_session_id: 10, version: "test".into() };
+    let perms = Permissions { control_mouse: true, ..Default::default() };
+    let info = PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
+    let (server, client) = tokio::join!(async {
+        host.receive_password_login(WAIT).await.unwrap();
+        let mut policy = OwnerApproval::new(id, principal, Some(perms));
+        host.authorize(perms, &mut policy).unwrap();
+        host.send_login_success(&info, WAIT).await.unwrap();
+    }, viewer.login(&identity, "shared-test-secret", WAIT));
+    let _ = server; assert_eq!(client.unwrap(), info);
+    let mouse = Envelope::mouse_event(MouseEvent { mask: 0, x: 7, y: -4 });
+    let (sent, received) = tokio::join!(viewer.send_input(&mouse, WAIT), host.receive_input(WAIT));
+    sent.unwrap(); received.unwrap();
+    assert_eq!(&*calls.lock().unwrap(), &["move:7,-4"]);
+    viewer.close(); host.close().unwrap();
+}

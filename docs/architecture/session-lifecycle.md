@@ -77,3 +77,11 @@ host/viewer, and is not safe against untrusted peers/relays. Network login and
 synthetic input cases have been written but not run. Actual display rendering,
 video negotiation/refresh, full message multiplexing, permissions synchronization,
 secure key exchange, 2FA and consent UX remain incomplete.
+
+A deferred synthetic case additionally composes the strict pinned-source
+version-1 key exchange, owned host/viewer password login, local approval and
+fake mouse dispatch. It has not been executed. This composition is an
+experiment, not proof of interoperability or a security boundary; no UI, real
+input, codec stream, pinned-key provisioning or untrusted-client tests are
+included. Admission should be taken *before* beginning the identity handshake;
+the case is only a composition sketch and does not model that ordering.
