@@ -59,6 +59,10 @@ test('opt-in interactive local screen host to viewer single frame',
       await session.sendOneVp9Frame(0, true, 2000, 30000);
       const event = await incoming;
       assert.equal(event.kind, 'video'); assert.equal(event.codec, 'vp9'); assert.ok(event.data.length > 0);
+      const images = await core.decodeTrustedVideoBatch([event.data], true);
+      assert.equal(images.length, 1); assert.ok(images[0].width > 0 && images[0].height > 0);
+      assert.equal(images[0].stride, images[0].width * 4);
+      assert.equal(images[0].data.length, images[0].stride * images[0].height);
       // A burst keeps its encoder only for this call. Receive concurrently so
       // a bounded socket does not deadlock waiting for the peer to drain it.
       const burstFrame = viewer.receive(10000); burstFrame.catch(() => {});

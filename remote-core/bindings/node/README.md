@@ -4,8 +4,9 @@ This is a partial binding, not a Node remote desktop SDK. It currently exposes
 display enumeration, a single raw capture and single-frame software encoding
 using RustDesk adapters. It also has limited pinned TCP/WSS viewers and an
 experimental loopback-only, view-only single-frame host. It does not provide a
-general host server, trusted consent, automatic codec negotiation, decoded
-video rendering or a complete input API. No binary is shipped. The API and build have not been tested
+general host server, trusted consent, automatic codec negotiation, network
+video rendering or a complete input API. An explicit trusted-only local batch
+decoder is available but is not safe for untrusted compressed streams. No binary is shipped. The API and build have not been tested
 or security-audited.
 
 Install the same Rust/native dependencies needed by the Rust workspace, then:
@@ -38,7 +39,7 @@ Only one encode can be outstanding; others are rejected until it finishes.
 Each call uses a fresh encoder and represents a separate stream, not continuous
 video, protocol framing or codec negotiation. The 16 MiB output check happens
 after native encoding and does not bound native allocations or JS-held buffers.
-There is deliberately no Node decoder for untrusted bitstreams. This API is
+The Node trusted-only decoder described below is not safe for untrusted bitstreams. This API is
 experimental and untested.
 
 A real capture-to-VP9 example (captures the screen, but does not send or save
@@ -81,7 +82,7 @@ it with untrusted peers.
 legacy wire events, but the host may reject them; its tracked-modifier mode is
 opt-in and its text support is restricted. Control-key numbers are RustDesk
 schema values, not Windows virtual-key codes. There is no video decoder or
-renderer yet. A viewer permits only
+renderer or automatic decoder yet. A viewer permits only
 one active operation at a time; therefore a long receive blocks input sends and
 a receive timeout closes the connection. Close explicitly when idle. At most
 eight viewer objects/tasks are retained by this addon, including explicitly
@@ -189,3 +190,19 @@ burst occupies a libuv worker and excludes all other operations on this host
 session. The viewer must read messages concurrently; `Viewer.receive()` and
 input/control operations are themselves mutually exclusive. No test, build,
 performance, privacy or interoperability validation has been performed.
+
+### Trusted-input-only video batch decoding
+
+`decodeTrustedVideoBatch(messages, true)` optionally decodes up to 32 ordered
+existing source VP8/VP9/AV1 envelopes in one fresh software decoder on a worker.
+The first message must be flagged as a keyframe and the display/codec must remain
+unchanged. It returns packed source-libyuv ARGB buffers with width, height and
+stride; byte order is not promised to match HTML canvas RGBA. The caller handles
+rendering, ACKs and decoder recreation across batches.
+
+**Do not feed untrusted network bitstreams to this function.** The boolean is an
+explicit acknowledgement, not a security check. Input (16 MiB) and copied-output
+(64 MiB) limits are checked around native calls but do not limit codec allocation,
+CPU or vulnerabilities while decoding. Use only authenticated, independently
+trusted local test data in an isolated environment; the decoder and API have not
+been built, tested, hardened or audited. At most one such task runs concurrently.
