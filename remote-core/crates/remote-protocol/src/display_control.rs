@@ -159,6 +159,24 @@ impl Envelope {
 mod extra_tests {
     use super::*;
     #[test]
+    fn rejects_negative_indices_and_oversized_subscription_lists() {
+        let mut misc = message_proto::Misc::new();
+        misc.set_capture_displays(message_proto::CaptureDisplays { add: vec![0; MAX_DISPLAY_ENTRIES + 1], ..Default::default() });
+        let mut inner = message_proto::Message::new(); inner.set_misc(misc);
+        assert_eq!(Envelope { inner }.capture_displays(), Err(DisplayControlError::Invalid));
+        let mut misc = message_proto::Misc::new();
+        misc.set_message_query(message_proto::MessageQuery { switch_display: -1, ..Default::default() });
+        let mut inner = message_proto::Message::new(); inner.set_misc(misc);
+        assert_eq!(Envelope { inner }.display_query(), Err(DisplayControlError::Invalid));
+        let mut misc = message_proto::Misc::new(); misc.set_follow_current_display(-1);
+        let mut inner = message_proto::Message::new(); inner.set_misc(misc);
+        assert_eq!(Envelope { inner }.follow_current_display(), Err(DisplayControlError::Invalid));
+        let mut misc = message_proto::Misc::new();
+        misc.set_change_display_resolution(message_proto::DisplayResolution::new());
+        let mut inner = message_proto::Message::new(); inner.set_misc(misc);
+        assert_eq!(Envelope { inner }.display_resolution(), Err(DisplayControlError::Invalid));
+    }
+    #[test]
     fn resolution_query_and_follow_are_bounded_without_side_effects() {
         let resolution = DisplayResolution { display: 1, width: 1920, height: 1080 };
         let event = Envelope::display_resolution_event(resolution).unwrap();
