@@ -39,7 +39,7 @@ impl Envelope {
 mod tests {
     use super::*;
     #[test]
-    fn source_controls_round_trip_without_altering_unknown_fields() {
+    fn source_controls_round_trip_with_bounded_display_index() {
         for event in [VideoControl::RefreshAll, VideoControl::RefreshDisplay(3), VideoControl::FrameReceived] {
             let bytes = Envelope::video_control_event(event).unwrap().encode(128).unwrap();
             assert_eq!(Envelope::decode(&bytes, 128).unwrap().video_control(), Some(event));
