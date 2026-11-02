@@ -3,7 +3,7 @@
 The `remote-protocol` crate uses `libs/base/protos/message.proto` through the
 source `base` crate. It does not introduce a replacement wire protocol. It
 provides bounded protobuf envelope decode/encode, a broad dispatch category,
-mouse events, and borrowed or owned encoded video packets. The source schema
+mouse and keyboard inspection, and borrowed or owned encoded video packets. The source schema
 contains many additional event types which are retained during round trips but
 not yet exposed as a stable high-level API.
 
@@ -17,8 +17,9 @@ Envelopes neither authenticate the peer nor bind messages to a session, reject
 replays, validate permission changes, or provide encryption. Callers must not
 route them to input or an exposed decoder until a complete security layer exists.
 
-Mouse inspection omits modifier details, and construction creates an empty
-modifier list. Do not use it as a replacement for the original input service
+Mouse modifier values can be inspected separately, while construction creates
+an empty modifier list. Keyboard payloads retain their original mode and values;
+they are not translated into Windows virtual keys. Do not use it as a replacement for the original input service
 until layout, modifiers, coordinates and platform behavior are preserved.
 The encoded-video constructor preserves packet ordering and keyframe/PTS
 metadata but does not validate sequence, codec compatibility or timestamps.

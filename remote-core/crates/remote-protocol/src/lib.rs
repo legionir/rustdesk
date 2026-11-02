@@ -112,6 +112,20 @@ impl Envelope {
             _ => Err(ProtocolError::UnexpectedMessage),
         }
     }
+    /// Inspect every modifier in a mouse event as its original protobuf enum value.
+    pub fn mouse_modifiers(&self) -> Result<impl Iterator<Item = i32> + '_, ProtocolError> {
+        match self.inner.union.as_ref() {
+            Some(message::Union::MouseEvent(event)) => Ok(event.modifiers.iter().map(|value| value.value())),
+            _ => Err(ProtocolError::UnexpectedMessage),
+        }
+    }
+    /// Inspect a keyboard event without translating its layout or key values.
+    pub fn keyboard(&self) -> Result<KeyboardEvent<'_>, ProtocolError> {
+        match self.inner.union.as_ref() {
+            Some(message::Union::KeyEvent(event)) => Ok(KeyboardEvent { event }),
+            _ => Err(ProtocolError::UnexpectedMessage),
+        }
+    }
     /// Construct a RustDesk mouse event without modifiers.
     ///
     /// The mask uses the original wire encoding. This does not authorize or
@@ -192,6 +206,49 @@ pub struct MouseEvent {
     pub x: i32,
     /// Desktop vertical coordinate.
     pub y: i32,
+}
+
+/// A borrowed keyboard event in the original RustDesk wire representation.
+pub struct KeyboardEvent<'a> {
+    event: &'a message_proto::KeyEvent,
+}
+impl<'a> KeyboardEvent<'a> {
+    /// Whether the event indicates key down.
+    pub fn down(&self) -> bool { self.event.down }
+    /// Whether the event requests a press rather than a held key.
+    pub fn press(&self) -> bool { self.event.press }
+    /// Raw source keyboard mode enum value, including unknown values.
+    pub fn mode(&self) -> i32 { self.event.mode.value() }
+    /// Raw source control-key enum values for modifiers, including unknown values.
+    pub fn modifiers(&self) -> impl Iterator<Item = i32> + '_ {
+        self.event.modifiers.iter().map(|value| value.value())
+    }
+    /// View the key payload. An absent payload is not a valid input operation.
+    pub fn payload(&self) -> Option<KeyboardPayload<'_>> {
+        use message_proto::key_event::Union;
+        match self.event.union.as_ref()? {
+            Union::ControlKey(value) => Some(KeyboardPayload::ControlKey(value.value())),
+            Union::Chr(value) => Some(KeyboardPayload::Position(*value)),
+            Union::Unicode(value) => Some(KeyboardPayload::Unicode(*value)),
+            Union::Seq(value) => Some(KeyboardPayload::Sequence(value.as_str())),
+            Union::Win2winHotkey(value) => Some(KeyboardPayload::WindowsHotkey(*value)),
+        }
+    }
+}
+
+/// Key payload before platform- and layout-specific interpretation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyboardPayload<'a> {
+    /// Raw source control-key enum value, which may be unknown.
+    ControlKey(i32),
+    /// Position key code; its platform meaning depends on keyboard mode.
+    Position(u32),
+    /// Unicode scalar or code as supplied by the peer; validate before use.
+    Unicode(u32),
+    /// UTF-8 text sequence supplied by the peer.
+    Sequence(&'a str),
+    /// RustDesk Windows-to-Windows hotkey encoding.
+    WindowsHotkey(u32),
 }
 
 /// Video wire variants supported by the source schema, not a runtime support guarantee.
