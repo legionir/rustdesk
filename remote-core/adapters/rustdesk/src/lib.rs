@@ -173,3 +173,6 @@ impl remote_transport::NetworkTransport for LoopbackWebSocket {
 
 /// Strict, isolated client-side WSS transport. Security review and tests are pending.
 pub mod strict_wss;
+
+/// Experimental pinned-source encrypted message transport and key exchange.
+pub mod source_crypto;

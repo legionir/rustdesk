@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 remote-transport = { path = "../../crates/remote-transport" }
+base = { path = "../../../libs/base" }
 hbb_common = { path = "../../../libs/hbb_common" }
 tokio = { version = "1.44", features = ["time", "net"] }
 url = "2.5"
