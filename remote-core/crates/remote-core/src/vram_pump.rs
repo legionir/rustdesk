@@ -73,6 +73,6 @@ impl VramVideoPump {
     }
     pub fn stop<B: InputBackend>(&mut self, host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
         if self.stopped || host.id() != self.session_id { return Err(CapturePumpError::NotAuthorized); }
-        host.stop_streaming()?; self.capture = None; self.stopped = true; Ok(())
+        crate::capture_pump::finish_streaming(host)?; self.capture = None; self.stopped = true; Ok(())
     }
 }

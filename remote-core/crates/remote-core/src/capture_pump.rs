@@ -146,7 +146,7 @@ impl CapturePump {
     /// the pump so the correct session can be supplied or cleanup can be retried.
     pub fn stop<B: InputBackend>(&mut self, host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
         if self.stopped || host.id() != self.session_id { return Err(CapturePumpError::NotAuthorized); }
-        host.stop_streaming()?;
+        finish_streaming(host)?;
         self.stopped = true;
         Ok(())
     }
@@ -198,7 +198,7 @@ impl MultiCapture {
     /// releases all capture handles; this does not close the connection.
     pub fn stop<B: InputBackend>(&mut self, host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
         if self.stopped || host.id() != self.session_id { return Err(CapturePumpError::NotAuthorized); }
-        host.stop_streaming()?;
+        finish_streaming(host)?;
         self.stopped = true;
         for pump in self.pumps.values_mut() { pump.stopped = true; }
         Ok(())
@@ -227,5 +227,15 @@ mod group_tests {
         assert!(validate_group_specs([(-1, 2, 2)].into_iter()).is_err());
         assert!(validate_group_specs([(0, 8192, 8192)].into_iter()).is_err());
         assert!(validate_group_specs([(0, u32::MAX, u32::MAX), (1, u32::MAX, u32::MAX)].into_iter()).is_err());
+    }
+}
+
+// Revoking view permission already transitions Streaming -> Connected. Native
+// handles still need explicit stop/drop even though the session transition ran.
+pub(crate) fn finish_streaming<B: InputBackend>(host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
+    match host.state() {
+        SessionState::Streaming => host.stop_streaming().map_err(CapturePumpError::Host),
+        SessionState::Connected if !host.permissions().view_screen => Ok(()),
+        _ => Err(CapturePumpError::NotAuthorized),
     }
 }
