@@ -178,3 +178,6 @@ pub mod strict_wss;
 pub mod source_crypto;
 /// Explicit opt-in RustDesk-framed direct TCP, without built-in security.
 pub mod direct_tcp;
+
+/// Experimental accepted-socket WSS host adapter, not an authenticated server.
+pub mod wss_server;
