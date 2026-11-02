@@ -152,3 +152,26 @@ async fn strict_pinned_exchange_then_password_approval_and_input() {
     assert_eq!(&*calls.lock().unwrap(), &["move:7,-4"]);
     viewer.close(); host.close().unwrap();
 }
+
+#[cfg(feature = "source-security")]
+#[tokio::test]
+async fn preauth_admission_is_retained_during_pinned_identity_handshake() {
+    use hbb_common::sodiumoxide::{self, crypto::sign};
+    use remote_rustdesk_websocket::source_crypto::connect_pinned_host;
+    sodiumoxide::init().unwrap();
+    let (socket, viewer_socket) = sockets().await;
+    let admission = AdmissionController::new(AdmissionLimits::default()).unwrap();
+    let permit = admission.admit("127.0.0.1".parse().unwrap()).unwrap();
+    let id = SessionId::new([11; 16]).unwrap();
+    let principal = Principal::new("viewer".into()).unwrap();
+    let verifier = PasswordVerifier::new(id, principal, "test", "salt", WAIT).unwrap();
+    let (host_public, host_secret) = sign::gen_keypair();
+    let (host, viewer) = tokio::join!(
+        remote_core::admitted_host::accept(socket, permit, id, Fake::default(), verifier, "host", &host_secret, WAIT),
+        connect_pinned_host(viewer_socket, "host", &host_public, LIMIT - 16, WAIT));
+    let mut host = host.unwrap(); let mut viewer = viewer.unwrap();
+    assert_eq!(admission.active().unwrap(), 1);
+    assert_eq!(host.state(), SessionState::Authenticating);
+    host.close().unwrap(); viewer.close();
+    assert_eq!(admission.active().unwrap(), 0);
+}
