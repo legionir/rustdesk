@@ -26,12 +26,11 @@ unbuilt and untested by request; do not use the current prototype as a product.
   reliable multi-monitor behavior, VRAM transport and source fallback policy
   are not completed. `hwcodec` RAM paths exist but are unbuilt and untested.
 - `viewer_connection` demultiplexes a small set of existing protobuf variants;
-  it does not render or negotiate codecs, request video refresh on recovery,
-  support video ACK/QoS or handle all display/permission updates. The
-  `remote-protocol::video_control` subset can encode and inspect the existing
-  refresh/received wire fields but is not connected to handling or scheduling.
-  Native video
-  decoders are not hardened against hostile compressed streams.
+  it does not render, automatically negotiate codecs, perform recovery or
+  implement video ACK/QoS scheduling or all display/permission updates. Basic
+  control and capability messages can be sent/returned to the caller, but are
+  not automatically scheduled. Native video decoders are not hardened against
+  hostile compressed streams.
 
 ## Security and transport
 
@@ -43,7 +42,8 @@ unbuilt and untested by request; do not use the current prototype as a product.
   a local owner-consent UI, or audited replay/DoS protection.
 - `DirectTcp` can expose an unencrypted listener; secure composition is the
   application caller's responsibility. The strict WSS adapter validates relay
-  TLS but has no server, authenticated routing headers, SSRF control or proven
+  TLS; an accepted-socket WSS host adapter now exists, but there is no complete
+  WSS listener policy, authenticated routing, SSRF control or proven
   Cloudflare interoperability. Source encryption can wrap binary transports but
   the complete hosted relay setup has not been tested.
 - `InputArbiter` coordinates only cooperating sessions in one process and is
@@ -53,9 +53,10 @@ unbuilt and untested by request; do not use the current prototype as a product.
 ## Node, packaging and validation
 
 - Node exposes local single-frame capture/encode, cursor wire conversion and a
-  narrow pinned direct-TCP viewer with serialized operations. It has no host
-  API, WSS binding, decoded video renderer, complete keyboard/input semantics,
-  durable credentials or production-safe consent. Native decoder allocation is
+  narrow pinned TCP/WSS viewer and a loopback-only, view-only single-frame host
+  with serialized operations. It has no general network host API, decoded video
+  renderer, complete keyboard/input semantics, durable credentials or
+  production-safe consent. Native decoder allocation is
   not bounded by compressed message size.
 - `tools/export-source.py` makes a provenance-recorded candidate tree, not a
   separate versioned release, resolved lockfile, license clearance or verified
