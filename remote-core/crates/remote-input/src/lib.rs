@@ -474,6 +474,9 @@ mod scan_tests {
         input.set_permissions(Permissions { keyboard: true, mouse: false }).unwrap();
         input.scan_down(ScanCode::new(0xe01d).unwrap()).unwrap();
         assert!(matches!(input.key_down(VirtualKey::new(65).unwrap()), Err(InputError::AlreadyPressed)));
+        assert!(matches!(input.type_text("no mixed text"), Err(InputError::AlreadyPressed)));
+        assert!(ScanCode::new(0).is_err());
+        assert!(ScanCode::new(0x1001).is_err());
         assert!(input.set_permissions(Permissions::default()).is_err());
         assert!(input.has_held_scans());
         fail.set(false); input.close().unwrap();
