@@ -17,4 +17,4 @@ vram = ["hwcodec", "scrap/vram"]
 mediacodec = ["scrap/mediacodec"]
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser"] }
+winapi = { version = "0.3", features = ["winuser", "wingdi", "windef", "minwindef", "ntdef", "basetsd", "winnt"] }

@@ -7,6 +7,8 @@
 
 #[cfg(any(target_os = "windows", test))]
 mod cursor_pixels;
+#[cfg(target_os = "windows")]
+mod windows_cursor_shape;
 
 use std::{ffi::c_void, io, time::Duration};
 use scrap::{TraitCapturer, TraitPixelBuffer};
@@ -173,10 +175,11 @@ mod tests {
 }
 
 /// Native cursor visibility and coordinates for the current Windows desktop.
-/// This is not the RustDesk portable-service implementation and does not capture
-/// a cursor shape; service/UAC/secure-desktop and multi-session behavior differ.
+/// This is not the RustDesk portable-service implementation. Shape sampling is
+/// experimental; service/UAC/secure-desktop and multi-session behavior differ.
 #[cfg(target_os = "windows")]
 pub mod windows_cursor {
+    pub use crate::windows_cursor_shape::{capture_shape, WindowsCursorShape};
     use std::{io, mem};
     use winapi::{shared::minwindef::FALSE, um::winuser::{GetCursorInfo, CURSORINFO, CURSOR_SHOWING}};
 
