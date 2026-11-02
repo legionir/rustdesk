@@ -6,6 +6,9 @@
 //! fields before acting. Parsing does not authenticate the sender, prevent
 //! replay, or enforce all semantic and memory-allocation limits.
 
+/// Cursor wire messages and bounded decoded-shape cache.
+pub mod cursor;
+
 use base::message_proto::{self, message, misc, video_frame, Message};
 use hbb_common::protobuf::Message as ProtobufMessage;
 use std::{error::Error, fmt};
@@ -57,6 +60,8 @@ pub enum MessageKind {
     Video,
     /// Mouse input.
     Mouse,
+    /// Cursor shape, selected cursor ID or position.
+    Cursor,
     /// Keyboard input.
     Keyboard,
     /// Login and related authorization messages.
@@ -98,6 +103,7 @@ impl Envelope {
         match self.inner.union.as_ref() {
             Some(message::Union::VideoFrame(_)) => MessageKind::Video,
             Some(message::Union::MouseEvent(_)) => MessageKind::Mouse,
+            Some(message::Union::CursorData(_)) | Some(message::Union::CursorPosition(_)) | Some(message::Union::CursorId(_)) => MessageKind::Cursor,
             Some(message::Union::KeyEvent(_)) => MessageKind::Keyboard,
             Some(message::Union::LoginRequest(_)) | Some(message::Union::LoginResponse(_))
             | Some(message::Union::Hash(_)) | Some(message::Union::Auth2fa(_))

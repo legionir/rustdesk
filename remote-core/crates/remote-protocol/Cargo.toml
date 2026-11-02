@@ -7,3 +7,4 @@ publish = false
 [dependencies]
 base = { path = "../../../libs/base" }
 hbb_common = { path = "../../../libs/hbb_common" }
+zstd = "0.13"

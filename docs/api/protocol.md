@@ -73,3 +73,11 @@ source RAM decoder when a configured backend is available. Packet count/size
 limits do not stop native decoder or driver allocations determined by the
 bitstream. It must only process trusted data until the decoder is sandboxed and
 reviewed. No real-GPU, compatibility or adversarial tests have run.
+
+`remote-protocol::cursor` exposes RustDesk cursor ID, position, zstd-compressed
+shape and request-shape messages. It mirrors the source client's 512×512,
+hotspot and exact RGBA length checks, and provides an explicitly bounded LRU
+cache. Cursor IDs are 64-bit; Node/JS callers must use strings to avoid loss of
+precision. The cache excludes allocator/application-held memory and does not
+draw a cursor or implement source content-based deduplication. Neither its
+wire compatibility nor adversarial decompression behavior has been tested.
