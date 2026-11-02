@@ -62,3 +62,14 @@ signed key exchange or provide end-to-end encryption through a relay. TLS
 validates the WSS server, not a desktop peer behind it. The policy is
 provisional and needs human security/API review and real certificate,
 interoperability and Cloudflare tests before use. No build or tests have run.
+
+Codec capability messages are the original RustDesk protobuf messages. The
+optional `remote-codec::negotiation::SourceNegotiator` delegates to RustDesk's
+original process-global `Encoder::update` algorithm and bounds the peer IDs it
+owns; it does not implement an alternative selection policy. Because other
+RustDesk code can mutate the same global state and reuse IDs, run this adapter
+only in a dedicated process that exclusively owns that state. Its module-local
+guard cannot prevent unrelated code from bypassing it. Capability claims are
+not authenticated or runtime proof, hardware initialization can fail, and the
+source's VP9 fallback is not a capability guarantee. Adapter and tests are
+unbuilt and unrun.

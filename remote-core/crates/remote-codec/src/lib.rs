@@ -3,6 +3,9 @@
 //! This API is not hardened for untrusted bitstreams. It does not yet provide
 //! all RustDesk codecs, negotiation, hardware acceleration or recovery policy.
 
+/// Process-global source codec negotiation adapter.
+pub mod negotiation;
+
 /// Optional RustDesk H.264/H.265 RAM-encoder adapter.
 #[cfg(feature = "hwcodec")]
 pub mod hardware;

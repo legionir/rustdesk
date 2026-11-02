@@ -141,18 +141,18 @@ This code has not yet been built, tested or security-audited.
 `remote-core::video` adds an experimental capture-buffer → software encoder →
 RustDesk protobuf → generic transport sender and a matching receiver. The
 sender checks an externally owned streaming session and view permission, and
-requires an encoder reset after failure or cancellation. This is not yet a
-complete host or viewer; codec negotiation, renderer, authenticated transport,
+requires an encoder reset after failure or cancellation. An experimental wrapper
+now invokes the source's process-global codec negotiation; it is not yet wired
+into a complete host or viewer. Renderer, authenticated transport,
 reconnection, bounded native decoder allocations and live task cancellation
 are not implemented. The receiver must not be exposed to untrusted peers. This
 pipeline has not been built or tested.
 
 `remote-rustdesk-websocket` is an experimental wrapper around the original
 RustDesk WebSocket client, limited to literal loopback `ws://` addresses. It
-is unauthenticated and accepts upstream plaintext text frames; it is not a WSS
-adapter or a secure network transport. WSS remains blocked on isolation of the
-source's global TLS/proxy configuration and a reviewed security design. This
-adapter has not yet been built or tested.
+is unauthenticated and accepts upstream plaintext text frames; it is not a secure
+network transport. A separate strict WSS client now isolates TLS policy but still
+requires review and peer authentication. Neither adapter has been built or tested.
 
 `remote-security` adds an experimental implementation of RustDesk's existing
 password challenge calculation and a single-use expiring verifier; owner

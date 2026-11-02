@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 scrap = { path = "../../../libs/scrap" }
 base = { path = "../../../libs/base" }
+remote-protocol = { path = "../remote-protocol" }
 
 [features]
 linux-pkg-config = ["scrap/linux-pkg-config"]
