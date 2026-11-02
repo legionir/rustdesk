@@ -134,3 +134,13 @@ limits. Indices are not stable identities and hotplug requires revalidation.
 OS resolution changes, multi-stream scheduling, atomic rollback, virtual
 monitors, source resolution metadata construction, source compatibility and
 real Windows multi-monitor capture remain incomplete and untested.
+
+The unverified `MultiCapture` group opens up to eight explicitly approved
+software capture handles and starts session streaming once; it caps the sum of
+frame areas at 32 Mi pixels, which is not a native-memory bound. It supports
+caller-driven per-display sends and shared stop. It does not auto-apply the
+subscription planner, dynamically reconfigure a group, schedule frames, recover
+from native failure/hotplug or coordinate refresh/decoder state. Do not mix it
+with separately managed pumps for the same session. The Windows two-monitor
+loopback example requires explicit screen-capture confirmation; it has not been
+built or run and must be used only on an authorized disposable desktop.
