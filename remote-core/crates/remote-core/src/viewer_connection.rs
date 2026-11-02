@@ -95,23 +95,33 @@ impl<T: NetworkTransport> ViewerConnection<T> {
     /// proof beyond the explicit zeroized wire buffer. The caller owns password
     /// lifetime. Cancellation leaves this object Busy; close/drop it.
     pub async fn login(&mut self, identity: &LoginIdentity, password: &str, deadline: Duration) -> Result<PeerInfo, ViewerError> {
+        self.login_with_options(identity, password, None, deadline).await
+    }
+    /// Login with explicit locally-verified decoder claims attached to the
+    /// source login message. This does not install decoders or guarantee the
+    /// host's encoder selection and remains an untrusted wire claim.
+    pub async fn login_with_decoding(&mut self, identity: &LoginIdentity, password: &str, capabilities: remote_protocol::DecodingAdvertisement, deadline: Duration) -> Result<PeerInfo, ViewerError> {
+        self.login_with_options(identity, password, Some(capabilities), deadline).await
+    }
+    async fn login_with_options(&mut self, identity: &LoginIdentity, password: &str, capabilities: Option<remote_protocol::DecodingAdvertisement>, deadline: Duration) -> Result<PeerInfo, ViewerError> {
         if self.phase != Phase::New || deadline.is_zero() || deadline > Duration::from_secs(180) { return Err(ViewerError::InvalidState); }
         let end = Instant::now().checked_add(deadline).ok_or(ViewerError::InvalidState)?;
         self.phase = Phase::Busy;
-        let result = self.login_inner(identity, password, end).await;
+        let result = self.login_inner(identity, password, capabilities, end).await;
         match result {
             Ok(info) => { self.phase = Phase::Connected; Ok(info) },
             Err(error) => { self.abort(); Err(error) },
         }
     }
-    async fn login_inner(&mut self, identity: &LoginIdentity, password: &str, end: Instant) -> Result<PeerInfo, ViewerError> {
+    async fn login_inner(&mut self, identity: &LoginIdentity, password: &str, capabilities: Option<remote_protocol::DecodingAdvertisement>, end: Instant) -> Result<PeerInfo, ViewerError> {
         let raw = self.transport.receive(Self::remaining(end)?).await?;
         let challenge = Envelope::decode(&raw, MAX_PRE_AUTH_BYTES)?;
         let hash = challenge.password_challenge()?;
         let hash = PasswordChallenge { salt: hash.salt.to_owned(), challenge: hash.challenge.to_owned() };
         let response = password_response(password, &hash)?;
-        let message = Envelope::desktop_login_event(DesktopLogin { username: &identity.target, peer_id: &identity.viewer_id,
+        let mut message = Envelope::desktop_login_event(DesktopLogin { username: &identity.target, peer_id: &identity.viewer_id,
             peer_name: &identity.viewer_name, password_response: response.as_bytes(), session_id: identity.wire_session_id, version: &identity.version })?;
+        if let Some(capabilities) = capabilities { message.set_login_decoding(capabilities)?; }
         let wire = Zeroizing::new(message.encode(MAX_PRE_AUTH_BYTES)?);
         self.transport.send(&wire, Self::remaining(end)?).await?;
         for _ in 0..=8 {

@@ -266,6 +266,22 @@ impl Envelope {
         inner.set_login_request(request);
         Ok(Self { inner })
     }
+    /// Attach explicitly checked decoder abilities to a constructed login.
+    /// Other login options are preserved. This is an untrusted wire claim and
+    /// does not detect codec support; callers must probe before advertising.
+    pub fn set_login_decoding(&mut self, advertisement: DecodingAdvertisement) -> Result<(), ProtocolError> {
+        let event = Self::supported_decoding_event(advertisement);
+        let decoding = event.source_supported_decoding()?.clone();
+        match self.inner.union.as_mut() {
+            Some(message::Union::LoginRequest(login)) if login.union.is_none() => {
+                if login.option.is_none() { login.option = Some(message_proto::OptionMessage::new()).into(); }
+                let option = login.option.as_mut().ok_or(ProtocolError::UnexpectedMessage)?;
+                option.supported_decoding = Some(decoding).into();
+                Ok(())
+            },
+            _ => Err(ProtocolError::UnexpectedMessage),
+        }
+    }
     /// Inspect every modifier in a mouse event as its original protobuf enum value.
     pub fn mouse_modifiers(&self) -> Result<impl Iterator<Item = i32> + '_, ProtocolError> {
         match self.inner.union.as_ref() {
