@@ -69,3 +69,19 @@ unbuilt and untested by request; do not use the current prototype as a product.
   work require an authorized disposable machine; CI results must not be
   substituted for those checks. Interoperability, network adversarial and
   security review remain separate acceptance gates.
+
+### Source login-failure policy still missing
+
+The pinned `src/server/connection.rs::{check_failure_with_scope,
+update_failure_with_scope,get_ipv6_prefixes}` maintains process-global,
+per-address failure counters and, for IPv6, /64, /56 and /48 counters. It
+checks both one-minute and cumulative thresholds, removes relevant entries on
+success and emits audit alarms. The terminal OS-credential path delegates to
+`src/server/login_failure_check.rs` for process-wide exponential backoff and a
+Windows login gate; terminal/OS login is outside the current prototype. The
+current RemoteCore admission permit caps concurrent pre-auth work but is **not**
+an equivalent failed-login rate limiter, and a password transcript permits
+offline guessing. Before integrating a policy, resolve trusted peer-address
+attribution through proxies/WSS, shared-prefix reset semantics, bounded storage,
+concurrent attempts, persistence, lockout/DoS risk and auditing with the owner;
+do not silently treat self-reported IDs or HTTP headers as authenticated IPs.
