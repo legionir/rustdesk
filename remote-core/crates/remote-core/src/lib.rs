@@ -11,6 +11,8 @@ pub mod input_arbiter;
 pub mod capture_pump;
 /// Experimental, caller-driven host connection; not a secure remote server.
 pub mod host_connection;
+/// Experimental caller-driven viewer transport and protocol demultiplexing.
+pub mod viewer_connection;
 
 use std::{error::Error, fmt};
 use remote_input::{InputBackend, InputController, InputError, MouseButton, VirtualKey};

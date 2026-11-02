@@ -115,6 +115,22 @@ impl Envelope {
             _ => MessageKind::Other,
         }
     }
+    /// Inspect an existing TestDelay message. The values are untrusted and do
+    /// not by themselves establish a heartbeat or network-quality estimate.
+    pub fn test_delay(&self) -> Result<TestDelay, ProtocolError> {
+        match self.inner.union.as_ref() {
+            Some(message::Union::TestDelay(delay)) => Ok(TestDelay { time: delay.time, from_client: delay.from_client,
+                last_delay: delay.last_delay, target_bitrate: delay.target_bitrate }),
+            _ => Err(ProtocolError::UnexpectedMessage),
+        }
+    }
+    /// Construct the original RustDesk TestDelay message.
+    pub fn test_delay_event(delay: TestDelay) -> Self {
+        let mut inner = Message::new();
+        inner.set_test_delay(message_proto::TestDelay { time: delay.time, from_client: delay.from_client,
+            last_delay: delay.last_delay, target_bitrate: delay.target_bitrate, ..Default::default() });
+        Self { inner }
+    }
     /// Inspect a mouse event. Coordinates and mask retain RustDesk semantics;
     /// they are not automatically mapped to a local monitor or authorized.
     pub fn mouse(&self) -> Result<MouseEvent, ProtocolError> {
@@ -349,6 +365,10 @@ pub struct DecodingAdvertisement {
     pub vp8: bool, pub vp9: bool, pub av1: bool, pub h264: bool, pub h265: bool,
     pub preference: CodecPreference,
 }
+
+/// Existing source latency-probe fields. The peer controls all values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TestDelay { pub time: i64, pub from_client: bool, pub last_delay: u32, pub target_bitrate: u32 }
 
 /// Borrowed RustDesk password challenge fields.
 pub struct PasswordChallenge<'a> {
