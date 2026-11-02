@@ -301,6 +301,10 @@ impl Task for ApproveTask {
     fn compute(&mut self) -> Result<()> {
         let mut lock = self.state.data.lock().map_err(|_| Error::from_reason("host session state poisoned"))?;
         let session = lock.as_mut().ok_or_else(|| Error::from_reason("host session closed"))?;
+        if Instant::now() >= session.approval_deadline {
+            let _ = session.host.close();
+            return Err(Error::from_reason("local owner approval expired"));
+        }
         // Enumeration may reveal screen geometry; it happens only on explicit
         // local approval and is not a stable identity across hotplug.
         let displays = remote_capture::displays().map_err(js_error)?;
@@ -315,7 +319,13 @@ impl Task for ApproveTask {
             infos.push(DisplayInfo { x: d.x, y: d.y, width, height, name: String::new(), online: d.online, cursor_embedded: false, scale: 0.0 });
         }
         let info = PeerInfo { username: String::new(), hostname: String::new(), platform: std::env::consts::OS.into(), version: "experimental".into(), displays: infos, current_display: 0, sas_enabled: false, encoding: None };
-        let end = Instant::now().checked_add(self.deadline).ok_or_else(|| Error::from_reason("invalid approval deadline"))?;
+        // Enumeration is blocking and can finish after expiry. Do not let the
+        // expiration timer's mutex contention authorize a stale approval.
+        if Instant::now() >= session.approval_deadline {
+            let _ = session.host.close();
+            return Err(Error::from_reason("local owner approval expired"));
+        }
+        let end = Instant::now().checked_add(self.deadline).ok_or_else(|| Error::from_reason("invalid approval deadline"))?.min(session.approval_deadline);
         let permissions = Permissions { view_screen: true, ..Default::default() };
         let mut approval = OwnerApproval::new(session.id, session.principal.clone(), Some(permissions));
         let rt = runtime()?;
