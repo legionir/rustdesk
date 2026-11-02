@@ -10,6 +10,8 @@
 pub mod cursor;
 /// Existing desktop login response and display metadata.
 pub mod desktop;
+/// Existing input wire constructors.
+pub mod input;
 
 use base::message_proto::{self, message, misc, video_frame, Message};
 use hbb_common::protobuf::Message as ProtobufMessage;
