@@ -73,6 +73,8 @@ export class Viewer {
   /** Uses RustDesk ControlKey numeric values, not Windows VK codes. */
   sendControlKey(controlKey: number, down: boolean, press: boolean, modifiers: number[], timeoutMs: number): Promise<void>;
   sendText(text: string, timeoutMs: number): Promise<void>;
+  /** Source Map-mode Windows physical scan code; host must authorize and enable it. */
+  sendWindowsScanCode(code: number, down: boolean, timeoutMs: number): Promise<void>;
   sendMouseWithModifiers(mask: number, x: number, y: number, modifiers: number[], timeoutMs: number): Promise<void>;
   /** These are requests/notifications only; they do not refresh or decode video locally. */
   advertiseDecoding(options: ViewerDecodingOptions, timeoutMs: number): Promise<void>;

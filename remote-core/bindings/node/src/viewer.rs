@@ -170,6 +170,16 @@ impl Viewer {
         let lease = BusyLease::acquire(&self.state)?;
         Ok(AsyncTask::new(SendWireInputTask { state: self.state.clone(), _busy: lease, wire, deadline }))
     }
+    /// Send a restricted Windows source Map-mode physical scan code. The
+    /// remote host must explicitly authorize and support this mode.
+    #[napi]
+    pub fn send_windows_scan_code(&self, code: u32, down: bool, timeout_ms: u32) -> Result<AsyncTask<SendWireInputTask>> {
+        let deadline = wait(timeout_ms)?;
+        let event = Envelope::windows_scan_event(code, down).map_err(js_error)?;
+        let wire = event.encode(8192).map_err(js_error)?;
+        let lease = BusyLease::acquire(&self.state)?;
+        Ok(AsyncTask::new(SendWireInputTask { state: self.state.clone(), _busy: lease, wire, deadline }))
+    }
     /// Send a source mouse event with explicitly supplied source modifier values.
     #[napi]
     pub fn send_mouse_with_modifiers(&self, mask: i32, x: i32, y: i32, modifiers: Vec<i32>, timeout_ms: u32) -> Result<AsyncTask<SendWireInputTask>> {

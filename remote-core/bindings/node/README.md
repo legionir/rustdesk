@@ -155,3 +155,9 @@ Host requests are surfaced as events; the application may explicitly call
 content IDs can collide, cache entries can be evicted, and hidden cursor,
 UAC/secure desktop, animation and portable-service behavior remain incomplete.
 These methods and native Win32 sampling are unbuilt and untested.
+
+`sendWindowsScanCode` constructs a restricted source Map-mode event. It does
+not grant input or establish peer platform compatibility. The experimental
+loopback host is view-only and will reject input; a separate trusted host must
+explicitly enable scan-mode dispatch. Windows scan-code behavior, cleanup and
+Node bindings have not been built or tested.
