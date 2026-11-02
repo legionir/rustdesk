@@ -1,0 +1,8 @@
+[package]
+name = "remote-input"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[target.'cfg(windows)'.dependencies]
+enigo = { path = "../../../libs/enigo" }

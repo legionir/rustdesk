@@ -54,3 +54,25 @@ an interactive desktop. On a disposable interactive Windows machine, set
 ensure screen capture is authorized. Recreate the encoder when resolution
 changes; pixel formats other than packed BGRA/RGBA are not supported by this
 bridge yet.
+
+## Windows input prototype
+
+`remote-input` wraps the source Enigo Windows backend and tracks held virtual
+keys and mouse buttons per controller. Permissions default to denied; revocation
+and `close()` attempt cleanup. Windows Enigo does not report all `SendInput`
+failures, so a successful release is not proof that Windows accepted it. Drop
+is best-effort and cannot handle process crash or power loss. This module is not
+an authenticator or a sandbox. Only use it under an authenticated, authorized
+session manager that serializes access to the OS input device; concurrent
+controllers can otherwise interfere with each other's keys. Layout conversion,
+scan-code modes, text/IME, repeat, monitor-relative mapping, and RustDesk
+protocol translation are not implemented.
+
+For an **interactive, disposable Windows desktop**, focus a test editor and run:
+
+```powershell
+cargo run --manifest-path remote-core/Cargo.toml -p remote-input --example windows_input -- --confirm-inject-input
+```
+
+This deliberately injects the A key into the focused window. Never run it on a
+production desktop. CI uses a fake input backend and does not inject keys.
