@@ -1,5 +1,5 @@
-//! Experimental Node-API bindings for local, explicit display capture only.
-//! This addon does not expose input control, networking, or authentication.
+//! Experimental Node-API bindings. The limited pinned direct-TCP viewer is
+//! unaudited and untested, and is not a complete or production-safe SDK.
 
 use napi::{bindgen_prelude::{AsyncTask, Buffer}, Env, Error, Result, Task};
 use napi_derive::napi;
@@ -323,3 +323,6 @@ pub fn encode_cursor_id(id: String) -> Result<Buffer> {
     remote_protocol::Envelope::cursor_id_event(cursor_id(&id)?)
         .encode(4096).map(Into::into).map_err(js_error)
 }
+
+/// Provisional, pinned-source direct TCP viewer binding.
+mod viewer;

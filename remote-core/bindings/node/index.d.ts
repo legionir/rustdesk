@@ -42,3 +42,33 @@ export function encodeCursorShape(rgba: Buffer, metadata: CursorMetadata): Promi
 export function decodeCursorShape(wire: Buffer): Promise<DecodedCursorShape>;
 export function encodeCursorPosition(x: number, y: number): Buffer;
 export function encodeCursorId(id: string): Buffer;
+
+/** Experimental, unaudited direct TCP viewer. Address must be literal IP:port. */
+export interface ViewerOptions {
+  address: string; expectedHostId: string; hostSigningKey: Buffer;
+  viewerId: string; viewerName: string; wireSessionId: string; version: string;
+  password: string; timeoutMs: number; maxMessageBytes: number;
+}
+export interface ViewerDisplayInfo {
+  x: number; y: number; width: number; height: number; name: string;
+  online: boolean; cursorEmbedded: boolean; scale: number;
+}
+export interface ViewerPeerInfo {
+  username: string; hostname: string; platform: string; version: string;
+  currentDisplay: number; displays: ViewerDisplayInfo[];
+}
+export interface ViewerMessage {
+  kind: 'video' | 'cursorShape' | 'cursorId' | 'cursorPosition' | 'testDelay' | 'peerInfo' | 'other';
+  data?: Buffer; display?: number; codec?: string; cursorId?: string;
+  x?: number; y?: number; hotx?: number; hoty?: number; width?: number; height?: number;
+  peer?: ViewerPeerInfo;
+}
+export class Viewer {
+  peerInfo(): ViewerPeerInfo;
+  sendMouse(mask: number, x: number, y: number, timeoutMs: number): Promise<void>;
+  /** Timeout closes the connection. Calls on one Viewer cannot overlap. */
+  receive(timeoutMs: number): Promise<ViewerMessage>;
+  close(): void;
+}
+/** Source v1 host key pinning; this is untested, not a production security guarantee. */
+export function connectViewer(options: ViewerOptions): Promise<Viewer>;

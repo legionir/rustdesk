@@ -13,16 +13,21 @@ doctest = false
 remote-capture = { path = "../../crates/remote-capture" }
 remote-codec = { path = "../../crates/remote-codec" }
 remote-protocol = { path = "../../crates/remote-protocol" }
+remote-core = { path = "../../crates/remote-core" }
+remote-rustdesk-websocket = { path = "../../adapters/rustdesk" }
+hbb_common = { path = "../../../libs/hbb_common" }
+tokio = { version = "1.44", features = ["rt-multi-thread", "net", "time"] }
+zeroize = "1.8"
 napi = { version = "2.16", default-features = false, features = ["napi6"] }
 napi-derive = "2.16"
 
 [features]
-linux-pkg-config = ["remote-capture/linux-pkg-config", "remote-codec/linux-pkg-config"]
-wayland = ["remote-capture/wayland", "remote-codec/wayland"]
-drm = ["wayland", "remote-capture/drm", "remote-codec/drm"]
-hwcodec = ["remote-capture/hwcodec", "remote-codec/hwcodec"]
-vram = ["hwcodec", "remote-capture/vram", "remote-codec/vram"]
-mediacodec = ["remote-capture/mediacodec", "remote-codec/mediacodec"]
+linux-pkg-config = ["remote-capture/linux-pkg-config", "remote-codec/linux-pkg-config", "remote-core/linux-pkg-config"]
+wayland = ["remote-capture/wayland", "remote-codec/wayland", "remote-core/wayland"]
+drm = ["wayland", "remote-capture/drm", "remote-codec/drm", "remote-core/drm"]
+hwcodec = ["remote-capture/hwcodec", "remote-codec/hwcodec", "remote-core/hwcodec"]
+vram = ["hwcodec", "remote-capture/vram", "remote-codec/vram", "remote-core/vram"]
+mediacodec = ["remote-capture/mediacodec", "remote-codec/mediacodec", "remote-core/mediacodec"]
 
 [build-dependencies]
 napi-build = "2"
