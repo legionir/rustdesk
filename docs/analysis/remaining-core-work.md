@@ -160,3 +160,9 @@ Windows virtual-display `platform_additions` JSON and original resolution;
 scale is unknown. Handle order and metadata can become stale immediately after
 enumeration. Refresh, secure desktop switching, actual mode changes and stream
 recreation are not automatic.
+
+Explicit `stop` now accepts the session's already-connected state after view
+permission was revoked, so capture resources can be marked stopped and dropped
+without a second streaming-state transition. This is not an asynchronous
+cancellation mechanism: a capture handle and any blocked native call remain
+the owner's responsibility, and software handles are released on drop.

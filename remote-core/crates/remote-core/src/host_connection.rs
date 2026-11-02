@@ -519,16 +519,17 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         }
     }
     /// Process one input or TestDelay message as in the original narrow API.
-    /// Video-control events are consumed but returned as unexpected; callers
-    /// that support them must use `receive_event` consistently instead.
+    /// Other control/display/cursor/capability events are consumed but returned
+    /// as unexpected; callers that support them must use `receive_event`
+    /// consistently instead.
     pub async fn receive_input(&mut self, deadline: Duration) -> Result<(), ConnectionError> {
         match self.receive_event(deadline).await? {
             HostEvent::Input | HostEvent::Heartbeat | HostEvent::ProbeReply(_) => Ok(()),
             HostEvent::VideoControl(_) | HostEvent::DisplaySwitchRequest { .. } | HostEvent::CaptureDisplaysRequest { .. } | HostEvent::DisplayResolutionRequest(_) | HostEvent::DisplayQuery(_) | HostEvent::CursorShapeRequest(_) | HostEvent::DecodingAdvertisement { .. } => Err(ConnectionError::UnexpectedMessage),
         }
     }
-    /// Receive one authorized input, heartbeat, or video-control request.
-    /// Video controls require screen-view permission but are not acted upon by
+    /// Receive one authorized input, heartbeat, video or display-control event.
+    /// Control requests require local permission but are not acted upon by
     /// this API. The caller must validate display IDs, rate-limit and decide
     /// how/when to refresh or record ACKs. On cancellation close/drop the Busy
     /// connection. This serial interface is not an autonomous host event loop.
