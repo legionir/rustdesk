@@ -7,9 +7,11 @@
 //! not protect the desktop peer from that relay. Use only in a controlled,
 //! trusted environment pending design review, implementation and tests.
 //!
-//! There is no upstream end-to-end encryption handshake, 2FA, trusted-device
-//! flow, full peer-info/login-response semantics, rate limiting, consent UI, codec
-//! negotiation, event loop, heartbeat, reconnect, or cross-process input lock.
+//! This type does not perform the source handshake itself; an optional separate
+//! pinned source-v1 transport adapter exists but is unverified. There is no 2FA,
+//! trusted-device flow, full login semantics, failure rate limiting, trusted
+//! consent UI, automatic codec negotiation, event loop, heartbeat scheduler,
+//! reconnect, or cross-process input lock.
 //! Untrusted login claims never identify the password holder. A trusted caller
 //! supplies the policy and must ensure it is a real local owner decision.
 
