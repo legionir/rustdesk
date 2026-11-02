@@ -1,0 +1,10 @@
+{
+  "name": "@remote-core/node-experimental",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Experimental local capture binding; not a secure remote desktop",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": { "build": "node build.cjs" },
+  "engines": { "node": ">=16" }
+}
