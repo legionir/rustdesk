@@ -16,6 +16,9 @@ impl fmt::Display for DisplayPlanError {
 }
 impl Error for DisplayPlanError {}
 /// Source precedence is nonempty add, otherwise nonempty sub, otherwise set.
+/// Despite its name, source `sub` uses `include=false, exclude=true` in
+/// `Server::capture_displays`: it *retains* listed active displays and removes
+/// other active displays, rather than subtracting the listed IDs.
 /// Unlike upstream's partial filtering, this adapter rejects the entire request
 /// if *any* supplied index is unavailable. Empty set deliberately stops all.
 /// Caller must authorize view/change-display and bound concurrent encoder memory.
@@ -33,7 +36,7 @@ pub fn plan(current: &[u32], request: &CaptureDisplays, available: &[bool], max_
     if before.len() != current.len() { return Err(DisplayPlanError::DuplicateCurrent); }
     let mut after = before.clone();
     if !request.add.is_empty() { after.extend(request.add.iter().copied()); }
-    else if !request.sub.is_empty() { for index in &request.sub { after.remove(index); } }
+    else if !request.sub.is_empty() { after.retain(|index| request.sub.contains(index)); }
     else { after = request.set.iter().copied().collect(); }
     if after.len() > max_active { return Err(DisplayPlanError::Capacity); }
     Ok(DisplayPlan { active: after.iter().copied().collect(), start: after.difference(&before).copied().collect(), stop: before.difference(&after).copied().collect() })
@@ -48,7 +51,7 @@ mod tests {
     fn source_precedence_and_empty_set_are_explicit() {
         let displays = [true, true, true];
         assert_eq!(plan(&[0], &request(&[1], &[0], &[2]), &displays, 3).unwrap().active, vec![0, 1]);
-        assert_eq!(plan(&[0, 1], &request(&[], &[0], &[2]), &displays, 3).unwrap().active, vec![1]);
+        assert_eq!(plan(&[0, 1], &request(&[], &[0], &[2]), &displays, 3).unwrap().active, vec![0]);
         let result = plan(&[0, 1], &request(&[], &[], &[]), &displays, 3).unwrap();
         assert_eq!(result.stop, vec![0, 1]); assert!(result.active.is_empty());
     }

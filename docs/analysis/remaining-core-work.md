@@ -126,8 +126,10 @@ request events only with both local view and change-display permissions, and
 preserves the original bounded wire envelope. The viewer exposes display
 announcements and can send requests; the Node host remains view-only and does
 not accept these requests. A caller-driven planner follows source add > sub >
-set precedence, but rejects any invalid/offline index rather than silently
-filtering, and treats an empty set as unsubscribe all. It returns start/stop
+set precedence. Source `sub` keeps the listed already-active displays and removes
+other subscriptions (`src/server.rs::capture_displays`), despite its name. The
+planner rejects any invalid/offline index rather than silently filtering, and
+treats an empty set as unsubscribe all. It returns start/stop
 plans without performing them. Applications must supply actual current display
 state, authorize each change, coordinate capturers/encoders and enforce resource
 limits. Indices are not stable identities and hotplug requires revalidation.
