@@ -167,3 +167,51 @@ impl Authorizer for OwnerApproval {
         Ok(decision)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup() -> (SessionId, Principal, PasswordVerifier) {
+        let id = SessionId::new([7; 16]).unwrap();
+        let principal = Principal::new("viewer".into()).unwrap();
+        let verifier = PasswordVerifier::new(id, principal.clone(), "example password", "public salt", Duration::from_secs(30)).unwrap();
+        (id, principal, verifier)
+    }
+    #[test]
+    fn verifies_once_and_rejects_replay() {
+        let (id, principal, mut verifier) = setup();
+        let response = password_response("example password", verifier.challenge()).unwrap();
+        assert_eq!(verifier.authenticate(id, Credential::new(response.as_bytes())).unwrap(), Some(principal));
+        assert_eq!(verifier.authenticate(id, Credential::new(response.as_bytes())).unwrap(), None);
+    }
+    #[test]
+    fn wrong_password_or_session_consumes_challenge() {
+        let (id, _, mut verifier) = setup();
+        let bad = password_response("wrong", verifier.challenge()).unwrap();
+        let good = password_response("example password", verifier.challenge()).unwrap();
+        assert_eq!(verifier.authenticate(id, Credential::new(bad.as_bytes())).unwrap(), None);
+        assert_eq!(verifier.authenticate(id, Credential::new(good.as_bytes())).unwrap(), None);
+        let (id, _, mut verifier) = setup();
+        let good = password_response("example password", verifier.challenge()).unwrap();
+        let other = SessionId::new([8; 16]).unwrap();
+        assert_eq!(verifier.authenticate(other, Credential::new(good.as_bytes())).unwrap(), None);
+        assert_eq!(verifier.authenticate(id, Credential::new(good.as_bytes())).unwrap(), None);
+    }
+    #[test]
+    fn approval_cannot_be_reused_or_applied_to_another_principal() {
+        let (id, principal, _) = setup();
+        let permissions = Permissions { view_screen: true, ..Default::default() };
+        let mut policy = OwnerApproval::new(id, principal.clone(), Some(permissions));
+        let other = Principal::new("other".into()).unwrap();
+        assert_eq!(policy.authorize(id, &other, permissions).unwrap(), None);
+        assert_eq!(policy.authorize(id, &principal, permissions).unwrap(), None);
+    }
+    #[test]
+    fn refuses_empty_secrets_and_unbounded_lifetime() {
+        let (id, principal, _) = setup();
+        assert!(matches!(PasswordVerifier::new(id, principal.clone(), "", "salt", Duration::from_secs(1)), Err(SecurityError::InvalidInput)));
+        assert!(matches!(PasswordVerifier::new(id, principal.clone(), "password", "", Duration::from_secs(1)), Err(SecurityError::InvalidInput)));
+        assert!(matches!(PasswordVerifier::new(id, principal, "password", "salt", Duration::from_secs(301)), Err(SecurityError::InvalidLifetime)));
+    }
+}

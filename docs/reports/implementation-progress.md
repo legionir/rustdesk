@@ -37,3 +37,16 @@ separate Git repository, release, license clearance, or independently verified
 build. Its inherited upstream lockfile does not establish a locked build of
 new prototype packages. Security transport, full RustDesk functionality,
 Windows real-desktop tests, standalone builds and final debugging remain open.
+
+## Loopback TCP and explicit network delivery contract (not tested)
+
+The RustDesk adapter now wraps its source `FramedStream` for loopback-only TCP
+client/listener use. A separate `NetworkTransport` interface records uncertain
+send delivery, rather than weakening local-channel cancellation guarantees.
+Experimental video sender/receiver methods use that interface. Security-adapter
+unit cases and a synthetic VP9→RustDesk protobuf→loopback TCP→decode integration
+case have been added but not built or run. The test's authentication occurs
+in-process, not over the TCP socket. Neither TCP nor the existing loopback WS is
+an authenticated/encrypted transport; the prototype is not safe to expose to
+untrusted peers. Production WSS, peer binding, consent, a complete host/viewer
+and secure bitstream handling remain open.

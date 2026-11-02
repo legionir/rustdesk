@@ -12,6 +12,7 @@ remote-protocol = { path = "../remote-protocol" }
 remote-transport = { path = "../remote-transport" }
 
 [dev-dependencies]
+remote-rustdesk-websocket = { path = "../../adapters/rustdesk" }
 remote-capture = { path = "../remote-capture" }
 remote-security = { path = "../remote-security" }
 getrandom = "0.2"
