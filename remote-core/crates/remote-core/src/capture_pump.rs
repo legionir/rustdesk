@@ -176,13 +176,7 @@ impl MultiCapture {
     pub fn start<B: InputBackend>(host: &mut HostInputSession<B>, displays: Vec<(Display, i32, EncoderConfig)>, limit: usize) -> Result<Self, CapturePumpError> {
         if host.state() != SessionState::Connected || !host.permissions().view_screen { return Err(CapturePumpError::NotAuthorized); }
         if displays.is_empty() || displays.len() > Self::MAX_STREAMS { return Err(CapturePumpError::InvalidFrame("invalid capture group size")); }
-        let mut indices = std::collections::BTreeSet::new();
-        let mut pixels = 0u64;
-        for (_, index, config) in &displays {
-            if *index < 0 || !indices.insert(*index) { return Err(CapturePumpError::InvalidFrame("invalid or duplicate display index")); }
-            pixels = pixels.checked_add(u64::from(config.width) * u64::from(config.height)).ok_or(CapturePumpError::InvalidFrame("pixel budget overflow"))?;
-        }
-        if pixels > Self::MAX_PIXELS { return Err(CapturePumpError::InvalidFrame("capture group pixel budget exceeded")); }
+        validate_group_specs(displays.iter().map(|(_, index, config)| (*index, config.width, config.height)))?;
         let mut pumps = std::collections::BTreeMap::new();
         for (display, index, config) in displays {
             pumps.insert(index, CapturePump::open(host, display, index, config, limit)?);
@@ -208,5 +202,30 @@ impl MultiCapture {
         self.stopped = true;
         for pump in self.pumps.values_mut() { pump.stopped = true; }
         Ok(())
+    }
+}
+
+// Validate before any native capture handle is opened. This ceiling is not a
+// substitute for encoder dimension validation or native allocation accounting.
+fn validate_group_specs(specs: impl Iterator<Item = (i32, u32, u32)>) -> Result<(), CapturePumpError> {
+    let mut indices = std::collections::BTreeSet::new();
+    let mut pixels = 0u64;
+    for (index, width, height) in specs {
+        if index < 0 || !indices.insert(index) { return Err(CapturePumpError::InvalidFrame("invalid or duplicate display index")); }
+        pixels = pixels.checked_add(u64::from(width) * u64::from(height)).ok_or(CapturePumpError::InvalidFrame("pixel budget overflow"))?;
+    }
+    if pixels > MultiCapture::MAX_PIXELS { return Err(CapturePumpError::InvalidFrame("capture group pixel budget exceeded")); }
+    Ok(())
+}
+#[cfg(test)]
+mod group_tests {
+    use super::*;
+    #[test]
+    fn rejects_duplicate_and_excess_pixel_specs_before_native_open() {
+        assert!(validate_group_specs([(0, 1920, 1080), (1, 1920, 1080)].into_iter()).is_ok());
+        assert!(validate_group_specs([(0, 2, 2), (0, 2, 2)].into_iter()).is_err());
+        assert!(validate_group_specs([(-1, 2, 2)].into_iter()).is_err());
+        assert!(validate_group_specs([(0, 8192, 8192)].into_iter()).is_err());
+        assert!(validate_group_specs([(0, u32::MAX, u32::MAX), (1, u32::MAX, u32::MAX)].into_iter()).is_err());
     }
 }
