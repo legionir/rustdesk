@@ -80,3 +80,26 @@ export class Viewer {
 }
 /** Source v1 host key pinning; this is untested, not a production security guarantee. */
 export function connectViewer(options: ViewerOptions): Promise<Viewer>;
+
+/** Loopback-only, view-only prototype. The host pin is ephemeral per listener. */
+export interface LocalHostOptions { hostId: string; password: string; timeoutMs: number }
+/** All claims are supplied by the peer, not a verified identity. */
+export interface LocalLoginClaims { username: string; peerId: string; peerName: string; wireSessionId: string; version: string }
+export class LocalHost {
+  address(): string;
+  signingPublicKey(): Buffer;
+  /** Returns an unapproved session; one session at a time. */
+  accept(timeoutMs: number): Promise<LocalHostSession>;
+  /** Existing sessions must be closed separately. Cannot overlap accept(). */
+  close(): void;
+}
+export class LocalHostSession {
+  claims(): LocalLoginClaims;
+  /** Requires a separate trusted local consent decision; grants view only. */
+  approveView(confirmLocalConsent: boolean, timeoutMs: number): Promise<void>;
+  /** One independently encoded frame; not continuous video or a codec negotiation. */
+  sendOneVp9Frame(displayIndex: number, confirmViewerVp9: boolean, captureTimeoutMs: number, sendTimeoutMs: number): Promise<void>;
+  close(): void;
+}
+/** Explicit loopback host, unbuilt/untested and not a production security boundary. */
+export function listenLocalHost(options: LocalHostOptions): Promise<LocalHost>;

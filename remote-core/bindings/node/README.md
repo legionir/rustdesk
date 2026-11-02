@@ -100,3 +100,34 @@ The viewer's `requestRefreshAll`, `requestRefreshDisplay`, and
 not perform decoding, schedule recovery or guarantee peer behavior. The caller
 must coordinate them with `receive`; operations cannot overlap. These methods
 have not been built or tested.
+
+### Experimental loopback-only view host
+
+`listenLocalHost` binds **only 127.0.0.1**, generates a temporary signing key,
+accepts one pending connection and exposes its unverified claims. The embedding
+application must obtain an independent local owner's explicit decision before
+calling `approveView(true, ...)`, or close/reject the session. Approval grants
+screen viewing only. An always-denying backend prevents OS input even if an
+input message is received. The password and ephemeral key must not be logged;
+JS strings and process memory can retain sensitive copies. A loopback address
+is not proof that another local process is trusted. There is no trusted consent
+UI, controller authentication, production key provisioning, brute-force
+policy or security audit. Abandoned pending connections must be closed by the
+application: expiration is checked on approval but does not itself close the
+socket in the background.
+
+After approval, `sendOneVp9Frame` explicitly opts into a single software VP9
+capture/send, opens a fresh capture handle and encoder, and stops them after the
+call. The application must know the viewer supports VP9, limit calls, manage
+capture timeouts and explicitly close both the session and listener. The addon
+checks current display metadata against the approval snapshot, but hotplug,
+desktop switching or an identical replacement can still defeat that check.
+Capture can reveal private screen content. No continuous stream, input API,
+server event loop, WSS listener, multi-controller support or hardened native
+decoder is supplied. Calls on a handle cannot overlap; close cannot interrupt
+an in-flight call. Native capture may block longer than its requested timeout.
+All of this is **unbuilt and untested**.
+
+`examples/local-host-viewer.cjs` is a manual demonstration that requires
+explicit confirmation and an interactive desktop. It is not an automated test
+or production reference.
