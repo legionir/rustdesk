@@ -67,6 +67,10 @@ pub trait InputBackend {
     fn key_down(&mut self, key: VirtualKey) -> io::Result<()>;
     /// Release a Windows virtual key.
     fn key_up(&mut self, key: VirtualKey) -> io::Result<()>;
+    /// Inject a text sequence, if supported by the backend.
+    fn type_text(&mut self, _text: &str) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "text input not supported"))
+    }
 }
 
 /// Errors from permission checks, lifecycle, or the input backend.
@@ -187,6 +191,19 @@ impl<B: InputBackend> InputController<B> {
         self.key_down(key)?;
         self.key_up(key)
     }
+    /// Inject bounded BMP text only when no keys are tracked as held by this
+    /// controller. The source Enigo backend cannot report Windows SendInput
+    /// failures, and local-human or other-process modifier state is not checked.
+    /// Non-BMP text remains unsupported here pending surrogate/cleanup tests.
+    pub fn type_text(&mut self, text: &str) -> Result<(), InputError> {
+        self.allowed(self.permissions.keyboard)?;
+        if !self.keys.is_empty() { return Err(InputError::AlreadyPressed); }
+        if text.is_empty() || text.len() > 4096 || text.chars().any(|c| c == '\0' || c as u32 > 0xffff) {
+            return Err(InputError::Backend(io::Error::new(io::ErrorKind::InvalidInput, "unsupported text sequence")));
+        }
+        self.backend.type_text(text)?;
+        Ok(())
+    }
     /// Deny all future operations and attempt to release every held input.
     /// Repeated calls retry any detectable failed releases.
     pub fn close(&mut self) -> Result<(), InputError> {
@@ -247,6 +264,7 @@ pub mod windows {
         fn scroll(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_scroll_x(x); self.inner.mouse_scroll_y(y); Ok(()) }
         fn key_down(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_down(Key::Raw(key.code())).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn key_up(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_up(Key::Raw(key.code())); Ok(()) }
+        fn type_text(&mut self, text: &str) -> io::Result<()> { self.inner.key_sequence(text); Ok(()) }
     }
 }
 

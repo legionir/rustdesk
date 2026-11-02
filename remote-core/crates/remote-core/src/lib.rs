@@ -218,6 +218,13 @@ impl<B: InputBackend> HostInputSession<B> {
         self.input.key_press(key)?;
         Ok(())
     }
+    /// Inject a bounded text sequence after keyboard authorization.
+    /// Backend/OS limitations and controller-held key restrictions apply.
+    pub fn type_text(&mut self, text: &str) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?;
+        self.input.type_text(text)?;
+        Ok(())
+    }
     /// Revoke access and attempt both input and session cleanup.
     ///
     /// Both paths are attempted even when one fails; calling again retries
@@ -314,7 +321,7 @@ pub mod windows_mouse {
 
 /// Restricted Windows legacy control-key dispatcher.
 ///
-/// Only control keys without modifiers are handled. The original RustDesk
+/// Only unmodified control keys and bounded BMP text are handled. The original RustDesk
 /// keyboard service has extensive layout, modifier, lock-state, repeat,
 /// portable-service and text handling; those paths are not replicated here.
 /// This API is not safe to expose without trusted authorization and input
@@ -369,27 +376,34 @@ pub mod windows_keyboard {
         })
     }
 
-    /// Apply a non-modifier legacy control-key message to a Windows-style backend.
+    /// Apply a non-modifier legacy control-key or Unicode/sequence message to a Windows-style backend.
     ///
     /// A `press` is a down/up pair; otherwise the wire `down` bit determines
     /// state. Repeat downs are suppressed by the input controller. Unlike the
     /// original service this method does not synchronize global modifier state,
-    /// switch Windows desktops, support layout/text/scan codes, or run the
-    /// portable service. Those limitations can affect even accepted keys.
+    /// switch Windows desktops, support layout/scan codes or non-BMP text, or run the
+    /// portable service. Unicode and sequence variants are injected on every
+    /// received event as in the source legacy handler, regardless of down/press. Those limitations can affect even accepted keys.
     pub fn dispatch<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
         host.session.check(remote_session::Action::ControlKeyboard).map_err(HostInputError::from)?;
         let event = envelope.keyboard()?;
         if event.mode() != 0 { return Err(DispatchError::Unsupported("non-legacy keyboard mode")); }
         if event.modifiers().next().is_some() { return Err(DispatchError::Unsupported("modifier-bearing keyboard event")); }
-        let value = match event.payload() {
-            Some(KeyboardPayload::ControlKey(value)) => value,
-            _ => return Err(DispatchError::Unsupported("non-control-key payload")),
-        };
-        let code = plain_control_vk(value).ok_or(DispatchError::Unsupported("modifier, system, or unknown control key"))?;
-        let key = VirtualKey::new(code).map_err(|_| DispatchError::Unsupported("invalid virtual key"))?;
-        if event.press() { host.key_press(key)?; }
-        else if event.down() { host.key_down(key)?; }
-        else { host.key_up(key)?; }
+        match event.payload() {
+            Some(KeyboardPayload::ControlKey(value)) => {
+                let code = plain_control_vk(value).ok_or(DispatchError::Unsupported("modifier, system, or unknown control key"))?;
+                let key = VirtualKey::new(code).map_err(|_| DispatchError::Unsupported("invalid virtual key"))?;
+                if event.press() { host.key_press(key)?; }
+                else if event.down() { host.key_down(key)?; }
+                else { host.key_up(key)?; }
+            },
+            Some(KeyboardPayload::Unicode(value)) => {
+                let character = char::from_u32(value).ok_or(DispatchError::Unsupported("invalid Unicode scalar"))?;
+                host.type_text(&character.to_string())?;
+            },
+            Some(KeyboardPayload::Sequence(text)) => host.type_text(text)?,
+            _ => return Err(DispatchError::Unsupported("position or Windows hotkey payload")),
+        }
         Ok(())
     }
 }

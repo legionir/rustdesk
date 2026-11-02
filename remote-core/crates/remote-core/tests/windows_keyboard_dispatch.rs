@@ -17,6 +17,7 @@ impl InputBackend for Fake {
     fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
     fn key_down(&mut self, k: VirtualKey) -> io::Result<()> { self.0.borrow_mut().push(format!("down:{}", k.code())); Ok(()) }
     fn key_up(&mut self, k: VirtualKey) -> io::Result<()> { self.0.borrow_mut().push(format!("up:{}", k.code())); Ok(()) }
+    fn type_text(&mut self, text: &str) -> io::Result<()> { self.0.borrow_mut().push(format!("text:{text}")); Ok(()) }
 }
 fn event(key: ControlKey, down: bool, press: bool, mode: KeyboardMode, modifiers: bool) -> Envelope {
     let mut key_event = KeyEvent::new();
@@ -56,4 +57,20 @@ fn rejects_modifiers_other_modes_and_unauthorized_events() {
     let mut denied = HostInputSession::new(SessionId::new([8; 16]).unwrap(), fake);
     assert!(dispatch(&mut denied, &event(ControlKey::Return, true, false, KeyboardMode::Legacy, false)).is_err());
     assert!(calls.borrow().is_empty());
+}
+
+fn text_event(text: &str) -> Envelope {
+    let mut key = KeyEvent::new(); key.set_seq(text.to_owned());
+    let mut message = Message::new(); message.set_key_event(key);
+    Envelope::decode(&message.write_to_bytes().unwrap(), 8192).unwrap()
+}
+#[test]
+fn permits_bounded_bmp_text_but_not_while_a_key_is_held() {
+    let fake = Fake::default(); let calls = fake.0.clone(); let mut host = authorized(fake);
+    dispatch(&mut host, &text_event("سلام" )).unwrap();
+    dispatch(&mut host, &event(ControlKey::F2, true, false, KeyboardMode::Legacy, false)).unwrap();
+    assert!(dispatch(&mut host, &text_event("blocked" )).is_err());
+    dispatch(&mut host, &event(ControlKey::F2, false, false, KeyboardMode::Legacy, false)).unwrap();
+    assert!(dispatch(&mut host, &text_event("😀" )).is_err());
+    assert_eq!(&*calls.borrow(), &["text:سلام", "down:113", "up:113"]);
 }

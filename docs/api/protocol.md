@@ -100,3 +100,11 @@ message does not prove peer identity, runtime codec availability or display
 safety. Features, supported resolutions, OS session lists, trusted-device
 fields and original resolution are not constructed by this subset. Both the
 constructor and parser are new and untested.
+
+The restricted Windows legacy keyboard dispatcher now accepts bounded BMP
+Unicode and sequence payloads through source Enigo `key_sequence`, only with
+keyboard permission, no wire modifiers and no controller-tracked held key. It
+rejects non-BMP characters, NUL and sequences over 4096 UTF-8 bytes; source
+behavior is broader. It does not synchronize local human/other-process modifier
+state, switch desktops, implement IME or guarantee Windows accepted input.
+Synthetic cases are written but not run; interactive Windows tests are required.
