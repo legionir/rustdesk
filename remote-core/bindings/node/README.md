@@ -38,3 +38,16 @@ video, protocol framing or codec negotiation. The 16 MiB output check happens
 after native encoding and does not bound native allocations or JS-held buffers.
 There is deliberately no Node decoder for untrusted bitstreams. This API is
 experimental and untested.
+
+A real capture-to-VP9 example (captures the screen, but does not send or save
+its contents) is available after building:
+
+```powershell
+node examples/capture-encode.cjs --confirm-capture
+```
+
+The native backend may return `WouldBlock`; the example has no retry loop.
+`npm test` contains synthetic encoder cases and requires a built addon. Neither
+example nor tests have been run. On Linux, set
+`REMOTE_CORE_LINUX_PKG_CONFIG=1` before `npm run build` to enable the workspace's
+pkg-config feature when native libraries are installed accordingly.

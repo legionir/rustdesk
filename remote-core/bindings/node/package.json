@@ -5,6 +5,6 @@
   "description": "Experimental local capture binding; not a secure remote desktop",
   "main": "index.js",
   "types": "index.d.ts",
-  "scripts": { "build": "node build.cjs" },
+  "scripts": { "build": "node build.cjs", "test": "node --test test/*.test.cjs" },
   "engines": { "node": ">=16" }
 }
