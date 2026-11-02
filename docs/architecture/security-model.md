@@ -21,7 +21,7 @@ validates its endpoint, but does not authenticate a desktop peer behind a relay
 or implement RustDesk's end-to-end handshake. Do not expose this prototype to
 the internet or enable remote input based on these adapters alone.
 
-Missing: end-to-end secure transport and peer binding; trusted consent UX; permission
+Missing: verified and audited end-to-end secure transport and peer binding; trusted consent UX; permission
 revocation across running tasks; session-ID generation and persistent replay
 controls; brute-force/connection limits; credentials storage and rotation;
 expiry policy across process restarts; RustDesk 2FA and trusted-device behavior;

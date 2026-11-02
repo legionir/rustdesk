@@ -6,8 +6,8 @@
 > and Windows cursor-position sampling. These additions, along with all work
 > after local transport CI run 41395071344, have not been built or tested. No
 > secure host/viewer, peer-bound authorization, standalone verified build,
-> complete Windows input/cursor shape support, or Node network/session API is
-> available. No post-deferral CI has been run.
+> complete Windows input/cursor support, or a complete, verified Node network/session API
+> is available. A narrow experimental pinned direct-TCP Node viewer exists. No post-deferral CI has been run.
 
 ## Windows-first capture and codec increment
 

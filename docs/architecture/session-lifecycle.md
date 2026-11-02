@@ -1,5 +1,9 @@
 # Session lifecycle prototype — pending verification
 
+> Historical sections below describe successive increments; later sections
+> supersede earlier statements about integration. Current host/viewer glue,
+> source encryption and Node viewer remain partial, unbuilt and untested.
+
 The new `remote-session` crate models Created → Connecting → Authenticating →
 Connected ↔ Streaming → Disconnecting → Closed, plus Failed. Only a successful
 caller-supplied authenticator and authorizer grant capabilities, and grants are
