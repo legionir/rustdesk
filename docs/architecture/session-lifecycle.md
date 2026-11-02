@@ -129,3 +129,11 @@ For peers that omit decoder capability data, RustDesk source registers
 exposes that exact fallback only with an explicit acknowledgement token. It is
 not a decoder probe and inherits the process-global collision and cleanup
 limitations of the source negotiator. The fallback test is deferred.
+
+`VideoSync` is optional caller-driven bookkeeping for a single display and
+codec. After a reported loss or decode failure it waits for the source wire
+keyframe marker and requires the caller to report decode outcome. This marker
+is peer-supplied and not validation; callers must recreate the native decoder,
+request refresh and decide render/ACK policy themselves. The tracker neither
+bounds native decoder allocation nor makes untrusted bitstreams safe. Its fake
+unit test has not been run.

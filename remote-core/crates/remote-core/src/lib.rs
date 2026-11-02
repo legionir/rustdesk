@@ -16,6 +16,8 @@ pub mod host_connection;
 pub mod admitted_host;
 /// Experimental caller-driven viewer transport and protocol demultiplexing.
 pub mod viewer_connection;
+/// Optional keyframe/loss bookkeeping for one video stream.
+pub mod video_sync;
 /// Opt-in local tracked-modifier input subset.
 pub mod tracked_modifiers;
 
