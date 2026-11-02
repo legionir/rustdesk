@@ -66,3 +66,14 @@ cryptographic peer binding, E2E encryption, secure identity, owner consent, 2FA,
 full RustDesk interoperability or cross-session input exclusivity. In
 particular a relay can observe the password challenge transcript. It is not a
 safe internet-facing server.
+
+A separate `viewer_connection::ViewerConnection` now owns a transport for a
+basic password login and caller-driven message demultiplexing. The host sends
+an existing-schema login response only after explicit approval; both sides can
+process a limited source TestDelay path. The viewer leaves video compressed for
+explicit trusted decoding and surfaces cursor/peer metadata. This is still not
+an end-to-end-authenticated or encrypted session, not a complete RustDesk
+host/viewer, and is not safe against untrusted peers/relays. Network login and
+synthetic input cases have been written but not run. Actual display rendering,
+video negotiation/refresh, full message multiplexing, permissions synchronization,
+secure key exchange, 2FA and consent UX remain incomplete.

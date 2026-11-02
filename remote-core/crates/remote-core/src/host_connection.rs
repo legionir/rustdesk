@@ -275,8 +275,8 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.phase = Phase::Authorized;
         Ok(true)
     }
-    /// Process one input message with the restricted Windows-style dispatchers.
-    /// Other messages are explicitly rejected; no full event loop is provided.
+    /// Process one input or TestDelay message with restricted Windows-style
+    /// dispatchers. Other messages are rejected; no full event loop is provided.
     /// On cancelled receive the connection stays Busy and must be closed/dropped.
     pub async fn receive_input(&mut self, deadline: Duration) -> Result<(), ConnectionError> {
         if self.phase != Phase::Authorized || deadline.is_zero() { return Err(ConnectionError::InvalidState); }
@@ -290,6 +290,18 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         match event.kind() {
             MessageKind::Mouse => windows_mouse::dispatch(&mut self.host, &event).map_err(ConnectionError::Mouse),
             MessageKind::Keyboard => windows_keyboard::dispatch(&mut self.host, &event).map_err(ConnectionError::Keyboard),
+            MessageKind::TestDelay => {
+                // The source host echoes client-origin probes unchanged. Host-
+                // origin replies need separate RTT bookkeeping, not provided here.
+                if event.test_delay()?.from_client {
+                    self.phase = Phase::Busy;
+                    if let Err(error) = self.transport.send(&raw, deadline).await {
+                        self.abort(); return Err(ConnectionError::Network(error));
+                    }
+                    self.phase = Phase::Authorized;
+                }
+                Ok(())
+            },
             _ => Err(ConnectionError::UnexpectedMessage),
         }
     }
