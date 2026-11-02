@@ -103,10 +103,10 @@ impl FrameAcks {
     /// Record a frame sent to a bounded set of positive local connection IDs.
     /// An outstanding generation must finish or be explicitly expired first.
     pub fn sent(&mut self, display: u32, peers: &[i32]) -> Result<(), ScheduleError> {
+        if peers.len() > MAX_PEERS { return Err(ScheduleError::TooManyPeers); }
         if peers.iter().any(|id| *id <= 0) { return Err(ScheduleError::InvalidPeer); }
         let set: HashSet<_> = peers.iter().copied().collect();
         if set.len() != peers.len() { return Err(ScheduleError::InvalidPeer); }
-        if set.len() > MAX_PEERS { return Err(ScheduleError::TooManyPeers); }
         if self.pending.contains_key(&display) { return Err(ScheduleError::AlreadyPending); }
         if !set.is_empty() {
             if self.pending.len() >= MAX_DISPLAYS { return Err(ScheduleError::TooManyDisplays); }

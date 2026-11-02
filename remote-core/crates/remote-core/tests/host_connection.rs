@@ -143,7 +143,7 @@ async fn strict_pinned_exchange_then_password_approval_and_input() {
     let mut host = HostConnection::new(host_socket.unwrap(), id, fake, verifier, permit, LIMIT - 16).unwrap();
     let mut viewer = ViewerConnection::new(viewer_socket.unwrap(), LIMIT - 16).unwrap();
     let identity = LoginIdentity { target: "expected-host".into(), viewer_id: "unverified".into(), viewer_name: "viewer".into(), wire_session_id: 10, version: "test".into() };
-    let perms = Permissions { control_mouse: true, control_keyboard: true, ..Default::default() };
+    let perms = Permissions { view_screen: true, control_mouse: true, control_keyboard: true, ..Default::default() };
     let info = PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
     assert!(host.set_authorized_message_limit(256 * 1024).is_err());
     let (server, client) = tokio::join!(async {
@@ -159,6 +159,17 @@ async fn strict_pinned_exchange_then_password_approval_and_input() {
     let (sent, received) = tokio::join!(viewer.send_input(&mouse, WAIT), host.receive_input(WAIT));
     sent.unwrap(); received.unwrap();
     assert_eq!(&*calls.lock().unwrap(), &["move:7,-4"]);
+    let mut probe = remote_core::video_schedule::DelayProbe::new();
+    let started = std::time::Instant::now();
+    let expected = probe.begin(started, 12, 400).unwrap();
+    let (sent, received) = tokio::join!(host.send_delay_probe(12, 400, WAIT), viewer.receive(WAIT));
+    sent.unwrap(); assert!(matches!(received.unwrap(), remote_core::viewer_connection::ViewerEvent::TestDelay(_)));
+    let reply = match host.receive_event(WAIT).await.unwrap() {
+        remote_core::host_connection::HostEvent::ProbeReply(reply) => reply,
+        _ => panic!("expected source probe echo"),
+    };
+    assert_eq!(reply, expected);
+    probe.reply(std::time::Instant::now(), reply).unwrap();
     host.set_windows_scan_mode_enabled(true).unwrap();
     let scan = Envelope::windows_scan_event(0xe01d, true).unwrap();
     let (sent, received) = tokio::join!(viewer.send_input(&scan, WAIT), host.receive_event(WAIT));
