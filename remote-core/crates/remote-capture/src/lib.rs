@@ -5,6 +5,9 @@
 //! borrows the capturer until it is dropped. This crate currently depends on the
 //! RustDesk checkout and is not yet an independently distributable extraction.
 
+#[cfg(any(target_os = "windows", test))]
+mod cursor_pixels;
+
 use std::{ffi::c_void, io, time::Duration};
 use scrap::{TraitCapturer, TraitPixelBuffer};
 
