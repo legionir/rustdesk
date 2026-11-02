@@ -35,6 +35,14 @@ fn selected() -> NegotiatedCodec {
     }
 }
 
+/// Explicit acknowledgement of the upstream legacy VP9 assumption.
+/// Missing capability data does not demonstrate decoder support. Use only when
+/// the embedding application deliberately accepts the compatibility risk.
+pub struct LegacyVp9OptIn(());
+impl LegacyVp9OptIn {
+    pub fn acknowledge_unverified_peer_decoder() -> Self { Self(()) }
+}
+
 /// Cooperatively owns a subset of RustDesk's process-global negotiation map.
 ///
 /// Only one instance from this module may exist at a time. Other users of the
@@ -62,6 +70,17 @@ impl SourceNegotiator {
         envelope.encode(MAX_PRE_AUTH_BYTES).map_err(|e| invalid_protocol(e.to_string()))?;
         let decoding = envelope.source_supported_decoding().map_err(|e| invalid_protocol(e.to_string()))?.clone();
         Encoder::update(EncodingUpdate::Update(peer_id, decoding));
+        self.peers.insert(peer_id);
+        Ok(selected())
+    }
+    /// Match the pinned source's `NewOnlyVP9` behavior for a peer whose login
+    /// carried no decoding advertisement. This is intentionally opt-in: a
+    /// missing claim does not prove VP9 is present or safe. Uses the same
+    /// process-global state and ownership caveats as `update`.
+    pub fn register_legacy_vp9(&mut self, peer_id: i32, _opt_in: LegacyVp9OptIn) -> io::Result<NegotiatedCodec> {
+        if peer_id <= 0 { return Err(invalid("peer ID must be positive")); }
+        if !self.peers.contains(&peer_id) && self.peers.len() >= MAX_PEERS { return Err(invalid("negotiation peer limit reached")); }
+        Encoder::update(EncodingUpdate::NewOnlyVP9(peer_id));
         self.peers.insert(peer_id);
         Ok(selected())
     }
@@ -100,5 +119,9 @@ mod tests {
         assert_eq!(n.peer_count(), 1);
         n.remove(1).unwrap();
         assert_eq!(n.peer_count(), 0);
+        assert!(n.register_legacy_vp9(0, LegacyVp9OptIn::acknowledge_unverified_peer_decoder()).is_err());
+        assert_eq!(n.register_legacy_vp9(2, LegacyVp9OptIn::acknowledge_unverified_peer_decoder()).unwrap(), NegotiatedCodec::Vp9);
+        assert_eq!(n.peer_count(), 1);
+        n.remove(2).unwrap();
     }
 }

@@ -123,3 +123,9 @@ This does not automatically invoke the process-global `SourceNegotiator`, prove
 any codec works, negotiate every source option, or start capture. Peer IDs,
 cleanup and exclusive ownership of upstream globals remain the caller's
 responsibility. The capability cases have not been built or run.
+
+For peers that omit decoder capability data, RustDesk source registers
+`EncodingUpdate::NewOnlyVP9`. `SourceNegotiator::register_legacy_vp9` now
+exposes that exact fallback only with an explicit acknowledgement token. It is
+not a decoder probe and inherits the process-global collision and cleanup
+limitations of the source negotiator. The fallback test is deferred.
