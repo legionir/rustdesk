@@ -186,3 +186,14 @@ The experimental `bindings/node` Node-API addon covers local display enumeration
 and one raw frame capture only. It is not a remote desktop SDK; see its README
 for prerequisites, privacy constraints and limitations. It has not been built
 or tested.
+
+### Exporting a candidate independent source tree
+
+`python3 remote-core/tools/export-source.py /path/to/new-directory` exports the
+committed prototype, pinned RustDesk library paths, exact `hbb_common` submodule
+commit, root license and an inherited lockfile into a new directory outside the
+checkout. It does not modify the RustDesk source or initialize a Git repository.
+The exporter uses Git objects, so uncommitted changes are excluded. It records
+commits and archive hashes in `SOURCE_PROVENANCE.md`. The inherited lockfile is
+only a resolution starting point: a locked independent build and license review
+are still outstanding. The exported tree is experimental and untested.

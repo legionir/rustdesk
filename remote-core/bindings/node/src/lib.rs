@@ -68,7 +68,8 @@ impl Task for EnumerateTask {
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> { Ok(output) }
 }
 
-struct RawFrame { width: u32, height: u32, strides: Vec<u32>, format: String, data: Vec<u8> }
+/// Owned worker result before conversion into a Node buffer.
+pub struct RawFrame { width: u32, height: u32, strides: Vec<u32>, format: String, data: Vec<u8> }
 pub struct CaptureTask { display_index: u32, timeout_ms: u32 }
 impl Task for CaptureTask {
     type Output = RawFrame;
