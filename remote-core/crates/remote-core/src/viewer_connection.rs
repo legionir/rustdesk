@@ -181,3 +181,15 @@ impl<T: NetworkTransport> ViewerConnection<T> {
     pub fn close(&mut self) { self.phase = Phase::Closed; self.transport.close(); }
 }
 impl<T: NetworkTransport> Drop for ViewerConnection<T> { fn drop(&mut self) { self.close(); } }
+
+impl<T: remote_transport::AdjustableNetworkTransport> ViewerConnection<T> {
+    /// Change the actual framing bound after the basic login has completed.
+    /// It is the caller's responsibility to trust the authenticated host and
+    /// select a safe limit; native video decoder allocations remain unbounded.
+    pub fn set_connected_message_limit(&mut self, maximum: usize) -> Result<(), ViewerError> {
+        if self.phase != Phase::Connected || maximum == 0 || maximum > MAX_ENVELOPE_BYTES { return Err(ViewerError::InvalidState); }
+        self.transport.set_max_message_size(maximum)?;
+        self.max_bytes = maximum;
+        Ok(())
+    }
+}

@@ -136,13 +136,16 @@ async fn strict_pinned_exchange_then_password_approval_and_input() {
     let identity = LoginIdentity { target: "expected-host".into(), viewer_id: "unverified".into(), viewer_name: "viewer".into(), wire_session_id: 10, version: "test".into() };
     let perms = Permissions { control_mouse: true, ..Default::default() };
     let info = PeerInfo { username: "".into(), hostname: "".into(), platform: "Windows".into(), version: "test".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
+    assert!(host.set_authorized_message_limit(256 * 1024).is_err());
     let (server, client) = tokio::join!(async {
         host.receive_password_login(WAIT).await.unwrap();
         let mut policy = OwnerApproval::new(id, principal, Some(perms));
         host.authorize(perms, &mut policy).unwrap();
+        host.set_authorized_message_limit(256 * 1024).unwrap();
         host.send_login_success(&info, WAIT).await.unwrap();
     }, viewer.login(&identity, "shared-test-secret", WAIT));
     let _ = server; assert_eq!(client.unwrap(), info);
+    viewer.set_connected_message_limit(256 * 1024).unwrap();
     let mouse = Envelope::mouse_event(MouseEvent { mask: 0, x: 7, y: -4 });
     let (sent, received) = tokio::join!(viewer.send_input(&mouse, WAIT), host.receive_input(WAIT));
     sent.unwrap(); received.unwrap();

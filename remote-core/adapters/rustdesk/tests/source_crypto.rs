@@ -1,7 +1,7 @@
 //! Deferred synthetic cases: no tests run, no production-security claim.
 use hbb_common::sodiumoxide::{self, crypto::sign};
 use remote_rustdesk_websocket::{source_crypto::{accept_pinned_host, connect_pinned_host}, tcp::{LoopbackTcp, LoopbackTcpListener}};
-use remote_transport::{NetworkTransport, NetworkTransportError, TransportFuture};
+use remote_transport::{AdjustableNetworkTransport, NetworkTransport, NetworkTransportError, TransportFuture};
 use std::{sync::{Arc, atomic::{AtomicBool, Ordering}}, time::Duration};
 const WAIT: Duration = Duration::from_secs(5);
 const LIMIT: usize = 128 * 1024;
@@ -53,4 +53,20 @@ async fn wrong_pin_and_wrong_host_id_fail_closed() {
         assert!(viewer.is_err());
         assert!(host.is_err());
     }
+}
+
+#[tokio::test]
+async fn framing_limit_can_be_raised_after_caller_authorization() {
+    sodiumoxide::init().unwrap();
+    let (host_socket, viewer_socket) = sockets().await;
+    let (public, secret) = sign::gen_keypair();
+    let (host, viewer) = tokio::join!(accept_pinned_host(host_socket, "host-1", &secret, LIMIT - 16, WAIT),
+        connect_pinned_host(viewer_socket, "host-1", &public, LIMIT - 16, WAIT));
+    let mut host = host.unwrap(); let mut viewer = viewer.unwrap();
+    let message = vec![7; LIMIT + 1];
+    assert!(viewer.send(&message, WAIT).await.is_err());
+    host.set_max_message_size(256 * 1024).unwrap();
+    viewer.set_max_message_size(256 * 1024).unwrap();
+    viewer.send(&message, WAIT).await.unwrap();
+    assert_eq!(&*host.receive(WAIT).await.unwrap(), &message);
 }
