@@ -19,3 +19,21 @@ This is not RustDesk's complete input service: the adapter accepts Windows virtu
 Commits `cf9abaa` and `c3180dd` add `remote-transport`, an object-safe async binary transport interface and an in-process Tokio channel implementation. Each direction bounds both message count and message size, reserves queue capacity before copying, applies deadlines, and handles cancellation and close. Limits exclude application-owned messages, allocator/channel overhead, and the receiver's already-dequeued messages; they are not a global process memory cap.
 
 [CI run 41395071344](https://github.com/legionir/rustdesk/actions/runs/41395071344) passed Windows and Linux transport tests, workspace checks/tests, and the Linux Xvfb capture → VP9 encode → local byte transport → decode test. The integration test retains codec metadata in process; it is not a wire protocol or real host/viewer session. Real Windows capture remains untested in CI. Local transport has no authentication, encryption, heartbeat or reconnection. WebSocket/WSS, session orchestration, security audit and network tests remain outstanding; this increment does not make the project production-ready.
+
+## Experimental Node binding and source export (not tested)
+
+The `remote-core/bindings/node` crate exposes asynchronous Node-API display
+enumeration and one-frame local capture, with a 64 MiB copied-frame limit and
+one native capture at a time. It is not a remote desktop SDK and provides no
+input, network, authentication, or trusted-consent UI. Native timeout behavior,
+monitor hotplug identity, privacy and remaining memory risks are documented in
+its README. Neither the addon nor its build script has been run.
+
+`remote-core/tools/export-source.py` exports committed objects from the pinned
+RustDesk baseline, the exact hbb_common submodule commit and the selected
+prototype commit into a new directory, without altering the original checkout.
+An experimental tree was materialized at `/home/user/remote-core`; it is not a
+separate Git repository, release, license clearance, or independently verified
+build. Its inherited upstream lockfile does not establish a locked build of
+new prototype packages. Security transport, full RustDesk functionality,
+Windows real-desktop tests, standalone builds and final debugging remain open.
