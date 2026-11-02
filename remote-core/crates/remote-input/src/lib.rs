@@ -46,6 +46,19 @@ impl VirtualKey {
     pub fn code(self) -> u16 { self.0 }
 }
 
+/// Restricted Windows physical scan code matching the source rdev encoding.
+/// Only nonzero one-byte codes with optional E0/E1 prefix are accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanCode(u16);
+impl ScanCode {
+    pub fn new(code: u32) -> io::Result<Self> {
+        let high = code >> 8; let low = code & 0xff;
+        if low == 0 || !matches!(high, 0 | 0xe0 | 0xe1) { return Err(io::Error::new(io::ErrorKind::InvalidInput, "unsupported scan code")); }
+        Ok(Self(code as u16))
+    }
+    pub fn code(self) -> u16 { self.0 }
+}
+
 /// Operations required of a local input backend.
 ///
 /// `key_up` and `mouse_up` must return an error when the backend can detect a
@@ -67,6 +80,9 @@ pub trait InputBackend {
     fn key_down(&mut self, key: VirtualKey) -> io::Result<()>;
     /// Release a Windows virtual key.
     fn key_up(&mut self, key: VirtualKey) -> io::Result<()>;
+    /// Press/release a source-style physical scan code; unsupported by default.
+    fn scan_down(&mut self, _code: ScanCode) -> io::Result<()> { Err(io::Error::new(io::ErrorKind::Unsupported, "scan-code input unsupported")) }
+    fn scan_up(&mut self, _code: ScanCode) -> io::Result<()> { Err(io::Error::new(io::ErrorKind::Unsupported, "scan-code input unsupported")) }
     /// Inject a text sequence, if supported by the backend.
     fn type_text(&mut self, _text: &str) -> io::Result<()> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "text input not supported"))
@@ -104,6 +120,7 @@ pub struct InputController<B: InputBackend> {
     backend: B,
     permissions: Permissions,
     keys: Vec<VirtualKey>,
+    scans: Vec<ScanCode>,
     buttons: Vec<MouseButton>,
     closed: bool,
 }
@@ -111,7 +128,7 @@ pub struct InputController<B: InputBackend> {
 impl<B: InputBackend> InputController<B> {
     /// Construct a controller with all permissions denied.
     pub fn new(backend: B) -> Self {
-        Self { backend, permissions: Permissions::default(), keys: Vec::new(), buttons: Vec::new(), closed: false }
+        Self { backend, permissions: Permissions::default(), keys: Vec::new(), scans: Vec::new(), buttons: Vec::new(), closed: false }
     }
 
     /// Current permissions.
@@ -186,6 +203,7 @@ impl<B: InputBackend> InputController<B> {
     /// cleanup; later `close` retries detectable release failures.
     pub fn key_down(&mut self, key: VirtualKey) -> Result<(), InputError> {
         self.allowed(self.permissions.keyboard)?;
+        if !self.scans.is_empty() { return Err(InputError::AlreadyPressed); }
         if !self.keys.contains(&key) {
             self.keys.push(key);
             if let Err(error) = self.backend.key_down(key) {
@@ -212,13 +230,39 @@ impl<B: InputBackend> InputController<B> {
         self.key_down(key)?;
         self.key_up(key)
     }
+    /// Whether physical scan codes are tracked; not an OS state query.
+    pub fn has_held_scans(&self) -> bool { !self.scans.is_empty() }
+    /// Press a scan code. Mixing physical and virtual tracked keys is refused
+    /// to avoid aliasing one OS key into two independent cleanup records.
+    pub fn scan_down(&mut self, code: ScanCode) -> Result<(), InputError> {
+        self.allowed(self.permissions.keyboard)?;
+        if !self.keys.is_empty() { return Err(InputError::AlreadyPressed); }
+        if !self.scans.contains(&code) {
+            if self.scans.len() >= 64 { return Err(InputError::Backend(io::Error::new(io::ErrorKind::InvalidInput, "scan key limit"))); }
+            self.scans.push(code);
+            if let Err(error) = self.backend.scan_down(code) {
+                self.closed = true; self.permissions = Permissions::default();
+                let _ = self.release(true, true);
+                return Err(InputError::Backend(error));
+            }
+        }
+        Ok(())
+    }
+    /// Release a tracked scan code; retain it when a detectable failure occurs.
+    pub fn scan_up(&mut self, code: ScanCode) -> Result<(), InputError> {
+        self.allowed(self.permissions.keyboard)?;
+        if let Some(index) = self.scans.iter().position(|key| *key == code) {
+            self.backend.scan_up(code)?; self.scans.remove(index);
+        }
+        Ok(())
+    }
     /// Inject bounded BMP text only when no keys are tracked as held by this
     /// controller. The source Enigo backend cannot report Windows SendInput
     /// failures, and local-human or other-process modifier state is not checked.
     /// Non-BMP text remains unsupported here pending surrogate/cleanup tests.
     pub fn type_text(&mut self, text: &str) -> Result<(), InputError> {
         self.allowed(self.permissions.keyboard)?;
-        if !self.keys.is_empty() { return Err(InputError::AlreadyPressed); }
+        if !self.keys.is_empty() || !self.scans.is_empty() { return Err(InputError::AlreadyPressed); }
         if text.is_empty() || text.len() > 4096 || text.chars().any(|c| c == '\0' || c as u32 > 0xffff) {
             return Err(InputError::Backend(io::Error::new(io::ErrorKind::InvalidInput, "unsupported text sequence")));
         }
@@ -236,6 +280,12 @@ impl<B: InputBackend> InputController<B> {
     fn release(&mut self, keys: bool, buttons: bool) -> Result<(), InputError> {
         let mut first_error = None;
         if keys {
+            for index in (0..self.scans.len()).rev() {
+                match self.backend.scan_up(self.scans[index]) {
+                    Ok(()) => { self.scans.remove(index); },
+                    Err(e) => { if first_error.is_none() { first_error = Some(e); } }
+                }
+            }
             for index in (0..self.keys.len()).rev() {
                 match self.backend.key_up(self.keys[index]) {
                     Ok(()) => { self.keys.remove(index); },
@@ -261,7 +311,7 @@ impl<B: InputBackend> Drop for InputController<B> {
 /// The Windows adapter reuses RustDesk's Enigo `SendInput` implementation.
 #[cfg(windows)]
 pub mod windows {
-    use super::{InputBackend, MouseButton, VirtualKey};
+    use super::{InputBackend, MouseButton, ScanCode, VirtualKey};
     use enigo::{Enigo, Key, KeyboardControllable, MouseControllable};
     use std::io;
 
@@ -285,6 +335,14 @@ pub mod windows {
         fn scroll(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_scroll_x(x); self.inner.mouse_scroll_y(y); Ok(()) }
         fn key_down(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_down(Key::Raw(key.code())).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn key_up(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_up(Key::Raw(key.code())); Ok(()) }
+        fn scan_down(&mut self, code: ScanCode) -> io::Result<()> {
+            rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::RawKey(rdev::RawKey::ScanCode(code.code() as u32))))
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("rdev scan input: {e:?}")))
+        }
+        fn scan_up(&mut self, code: ScanCode) -> io::Result<()> {
+            rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::RawKey(rdev::RawKey::ScanCode(code.code() as u32))))
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("rdev scan release: {e:?}")))
+        }
         fn type_text(&mut self, text: &str) -> io::Result<()> { self.inner.key_sequence(text); Ok(()) }
     }
 }
