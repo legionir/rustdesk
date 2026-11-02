@@ -168,3 +168,24 @@ bounds owner approval and its initial response. Display enumeration is blocking;
 the approval worker rechecks expiry afterward, even if the expiration timer was
 waiting on the same session mutex. This behavior is untested, and it does not
 turn caller-provided approval into a trusted OS consent prompt.
+
+### Bounded local VP9 burst (experimental)
+
+After view approval, `sendVp9Burst(displayIndex, confirmViewerVp9, fps,
+maxFrames, maxDurationMs, captureTimeoutMs, sendTimeoutMs)` sends up to 120
+frames over a single software VP9 encoder at up to 30 FPS and for at most five
+seconds of scheduled work. It returns the number actually sent; unchanged
+screen capture may produce `WouldBlock` instead. Each burst creates a new stream
+and encoder, so the viewer must handle stream/keyframe changes. It checks the
+approved display metadata on every attempt, but that does not establish stable
+monitor identity. This is loopback-only, view-only, not continuous production
+streaming, codec negotiation or a trusted consent UI.
+
+`requestStopBurst()` sets a cooperative stop flag without waiting for the host
+lock. Await the burst before closing the session. It cannot interrupt a native
+capture, encoder, display enumeration or in-flight send; native calls may
+exceed their timeout hints, so the duration is not a hard privacy deadline. The
+burst occupies a libuv worker and excludes all other operations on this host
+session. The viewer must read messages concurrently; `Viewer.receive()` and
+input/control operations are themselves mutually exclusive. No test, build,
+performance, privacy or interoperability validation has been performed.
