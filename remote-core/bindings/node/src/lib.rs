@@ -226,3 +226,100 @@ pub fn encode_frame(data: Buffer, options: EncodeOptions) -> Result<AsyncTask<En
     let lease = EncodeLease::acquire()?;
     Ok(AsyncTask::new(EncodeTask { _lease: lease, data: data.to_vec(), options, codec, pixel_format }))
 }
+
+// Cursor data is compressed/decompressed on a libuv worker. This is a wire
+// utility, not a screen capturer, renderer, transport, or authenticated session.
+static CURSOR_BUSY: AtomicBool = AtomicBool::new(false);
+const MAX_CURSOR_RGBA_BYTES: usize = 512 * 512 * 4;
+const MAX_CURSOR_WIRE_BYTES: usize = 2 * 1024 * 1024;
+struct CursorLease;
+impl CursorLease {
+    fn acquire() -> Result<Self> {
+        CURSOR_BUSY.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .map(|_| Self).map_err(|_| Error::from_reason("another cursor operation is in progress"))
+    }
+}
+impl Drop for CursorLease {
+    fn drop(&mut self) { CURSOR_BUSY.store(false, Ordering::Release); }
+}
+fn cursor_id(id: &str) -> Result<u64> {
+    let parsed = id.parse::<u64>().map_err(|_| Error::from_reason("cursor id must be a decimal u64 string"))?;
+    if parsed.to_string() != id { return Err(Error::from_reason("cursor id must use canonical decimal notation")); }
+    Ok(parsed)
+}
+
+/// Cursor metadata. ID is a string because RustDesk uses a 64-bit identifier.
+#[napi(object)]
+pub struct CursorMetadata {
+    pub id: String,
+    pub hotx: i32,
+    pub hoty: i32,
+    pub width: i32,
+    pub height: i32,
+}
+/// A decoded RustDesk shape; `rgba` is an owned packed RGBA buffer.
+#[napi(object)]
+pub struct DecodedCursorShape {
+    pub id: String,
+    pub hotx: i32,
+    pub hoty: i32,
+    pub width: i32,
+    pub height: i32,
+    pub rgba: Buffer,
+}
+pub struct EncodeCursorTask { _lease: CursorLease, shape: remote_protocol::cursor::CursorShape }
+impl Task for EncodeCursorTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+    fn compute(&mut self) -> Result<Self::Output> {
+        remote_protocol::Envelope::cursor_shape_event(&self.shape).map_err(js_error)?
+            .encode(MAX_CURSOR_WIRE_BYTES).map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, output: Self::Output) -> Result<Self::JsValue> { Ok(output.into()) }
+}
+/// Serialize one validated RGBA cursor shape using RustDesk's existing schema.
+/// This copies the input; only one encode/decode task may be outstanding.
+#[napi]
+pub fn encode_cursor_shape(rgba: Buffer, metadata: CursorMetadata) -> Result<AsyncTask<EncodeCursorTask>> {
+    if rgba.len() > MAX_CURSOR_RGBA_BYTES { return Err(Error::from_reason("cursor RGBA exceeds 1 MiB")); }
+    let id = cursor_id(&metadata.id)?;
+    let lease = CursorLease::acquire()?;
+    let shape = remote_protocol::cursor::CursorShape { id, hotx: metadata.hotx, hoty: metadata.hoty,
+        width: metadata.width, height: metadata.height, rgba: rgba.to_vec() };
+    shape.validate().map_err(js_error)?;
+    Ok(AsyncTask::new(EncodeCursorTask { _lease: lease, shape }))
+}
+pub struct DecodeCursorTask { _lease: CursorLease, wire: Vec<u8> }
+impl Task for DecodeCursorTask {
+    type Output = remote_protocol::cursor::CursorShape;
+    type JsValue = DecodedCursorShape;
+    fn compute(&mut self) -> Result<Self::Output> {
+        remote_protocol::Envelope::decode(&self.wire, MAX_CURSOR_WIRE_BYTES).map_err(js_error)?
+            .cursor_shape().map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, shape: Self::Output) -> Result<Self::JsValue> {
+        Ok(DecodedCursorShape { id: shape.id.to_string(), hotx: shape.hotx, hoty: shape.hoty,
+            width: shape.width, height: shape.height, rgba: shape.rgba.into() })
+    }
+}
+/// Parse a cursor-shape envelope and decompress it under the source limits.
+/// This is untested and is not an audited native decompression sandbox.
+#[napi]
+pub fn decode_cursor_shape(wire: Buffer) -> Result<AsyncTask<DecodeCursorTask>> {
+    if wire.len() > MAX_CURSOR_WIRE_BYTES { return Err(Error::from_reason("cursor envelope exceeds 2 MiB")); }
+    let lease = CursorLease::acquire()?;
+    Ok(AsyncTask::new(DecodeCursorTask { _lease: lease, wire: wire.to_vec() }))
+}
+
+/// Create a cursor-position envelope using the existing wire schema.
+#[napi]
+pub fn encode_cursor_position(x: i32, y: i32) -> Result<Buffer> {
+    remote_protocol::Envelope::cursor_position_event(remote_protocol::cursor::CursorPosition { x, y })
+        .encode(4096).map(Into::into).map_err(js_error)
+}
+/// Create a cursor-ID envelope. Decimal string IDs preserve all 64 bits.
+#[napi]
+pub fn encode_cursor_id(id: String) -> Result<Buffer> {
+    remote_protocol::Envelope::cursor_id_event(cursor_id(&id)?)
+        .encode(4096).map(Into::into).map_err(js_error)
+}

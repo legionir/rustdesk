@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 remote-capture = { path = "../../crates/remote-capture" }
 remote-codec = { path = "../../crates/remote-codec" }
+remote-protocol = { path = "../../crates/remote-protocol" }
 napi = { version = "2.16", default-features = false, features = ["napi6"] }
 napi-derive = "2.16"
 

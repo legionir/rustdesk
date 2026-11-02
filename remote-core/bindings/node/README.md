@@ -51,3 +51,12 @@ The native backend may return `WouldBlock`; the example has no retry loop.
 example nor tests have been run. On Linux, set
 `REMOTE_CORE_LINUX_PKG_CONFIG=1` before `npm run build` to enable the workspace's
 pkg-config feature when native libraries are installed accordingly.
+
+Experimental cursor utilities `encodeCursorShape`, `decodeCursorShape`,
+`encodeCursorId` and `encodeCursorPosition` convert the existing RustDesk wire
+messages. Shape conversions run on a worker, use a single shared concurrency
+lease and copy inputs; they do not capture, render or transmit a cursor. IDs are
+canonical decimal strings, since JS numbers cannot represent all RustDesk u64
+IDs. The 1 MiB raw and 2 MiB serialized checks exclude native zstd allocations,
+protobuf overhead, JS-held buffers and other callers. These additions and the
+synthetic cursor cases have not been built, tested or security audited.

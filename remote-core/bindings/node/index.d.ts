@@ -33,3 +33,12 @@ export interface EncodedPacket { data: Buffer; key: boolean; ptsMs: number }
 export interface EncodedFrame { codec: 'vp8' | 'vp9' | 'av1'; packets: EncodedPacket[] }
 /** One independent frame/encoder invocation; not a persistent video stream. */
 export function encodeFrame(data: Buffer, options: EncodeOptions): Promise<EncodedFrame>;
+
+/** Decimal unsigned 64-bit RustDesk cursor ID, never a JS number. */
+export interface CursorMetadata { id: string; hotx: number; hoty: number; width: number; height: number }
+export interface DecodedCursorShape extends CursorMetadata { rgba: Buffer }
+/** Wire conversion only, not a cursor capturer or session. */
+export function encodeCursorShape(rgba: Buffer, metadata: CursorMetadata): Promise<Buffer>;
+export function decodeCursorShape(wire: Buffer): Promise<DecodedCursorShape>;
+export function encodeCursorPosition(x: number, y: number): Buffer;
+export function encodeCursorId(id: string): Buffer;
