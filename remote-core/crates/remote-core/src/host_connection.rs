@@ -301,7 +301,7 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         };
         self.phase = Phase::Authorized;
         let event = Envelope::decode(&raw, self.max_post_auth_bytes)?;
-        match event.kind() {
+        let result = match event.kind() {
             MessageKind::Mouse if self.tracked_modifiers => crate::tracked_modifiers::mouse(&mut self.host, &event).map_err(ConnectionError::TrackedModifier),
             MessageKind::Mouse => windows_mouse::dispatch(&mut self.host, &event).map_err(ConnectionError::Mouse),
             MessageKind::Keyboard if self.tracked_modifiers && matches!(event.keyboard()?.payload(), Some(remote_protocol::KeyboardPayload::ControlKey(_))) =>
@@ -320,7 +320,16 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
                 Ok(())
             },
             _ => Err(ConnectionError::UnexpectedMessage),
-        }
+        };
+        // A session/input failure may represent partial OS delivery. Close and
+        // attempt cleanup; an attached lease remains quarantined if detectable
+        // cleanup continues to fail. Unsupported wire forms do not auto-close.
+        if matches!(&result,
+            Err(ConnectionError::Mouse(windows_mouse::DispatchError::Host(_)))
+            | Err(ConnectionError::Keyboard(windows_keyboard::DispatchError::Host(_)))
+            | Err(ConnectionError::TrackedModifier(crate::tracked_modifiers::ErrorKind::Host(_)))
+        ) { self.abort(); }
+        result
     }
     /// Reserve a shared cooperative input arbiter for this approved session.
     /// The lease is held until detectable host cleanup succeeds. On unresolved
