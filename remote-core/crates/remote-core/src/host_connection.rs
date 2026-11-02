@@ -328,6 +328,7 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
             Err(ConnectionError::Mouse(windows_mouse::DispatchError::Host(_)))
             | Err(ConnectionError::Keyboard(windows_keyboard::DispatchError::Host(_)))
             | Err(ConnectionError::TrackedModifier(crate::tracked_modifiers::ErrorKind::Host(_)))
+            | Err(ConnectionError::TrackedModifier(crate::tracked_modifiers::ErrorKind::Mouse(windows_mouse::DispatchError::Host(_))))
         ) { self.abort(); }
         result
     }
