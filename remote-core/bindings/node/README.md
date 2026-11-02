@@ -88,3 +88,9 @@ closed objects until garbage collection. Other Node buffers, queued libuv tasks,
 native allocations and process resources are not bounded by this count. Password
 strings remain in JS memory and may have additional copies; do not log them.
 None of these APIs or their security guarantees has been built or tested.
+
+`examples/pinned-viewer.cjs` demonstrates a manually confirmed connection to a
+trusted test peer using a raw 32-byte public-key file. It prints only event
+kind and length and does not decode or save screen data. The example requires a
+password in an environment variable for convenience; that is **not** secure
+credential storage. It has not been run. Do not use it for production access.
