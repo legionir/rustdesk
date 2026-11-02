@@ -94,3 +94,9 @@ trusted test peer using a raw 32-byte public-key file. It prints only event
 kind and length and does not decode or save screen data. The example requires a
 password in an environment variable for convenience; that is **not** secure
 credential storage. It has not been run. Do not use it for production access.
+
+The viewer's `requestRefreshAll`, `requestRefreshDisplay`, and
+`notifyVideoReceived` send existing RustDesk video-control messages. They do
+not perform decoding, schedule recovery or guarantee peer behavior. The caller
+must coordinate them with `receive`; operations cannot overlap. These methods
+have not been built or tested.

@@ -70,6 +70,10 @@ export class Viewer {
   sendControlKey(controlKey: number, down: boolean, press: boolean, modifiers: number[], timeoutMs: number): Promise<void>;
   sendText(text: string, timeoutMs: number): Promise<void>;
   sendMouseWithModifiers(mask: number, x: number, y: number, modifiers: number[], timeoutMs: number): Promise<void>;
+  /** These are requests/notifications only; they do not refresh or decode video locally. */
+  requestRefreshAll(timeoutMs: number): Promise<void>;
+  requestRefreshDisplay(display: number, timeoutMs: number): Promise<void>;
+  notifyVideoReceived(timeoutMs: number): Promise<void>;
   /** Timeout closes the connection. Calls on one Viewer cannot overlap. */
   receive(timeoutMs: number): Promise<ViewerMessage>;
   close(): void;

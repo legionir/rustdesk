@@ -139,6 +139,22 @@ impl Viewer {
         let lease = BusyLease::acquire(&self.state)?;
         Ok(AsyncTask::new(SendWireInputTask { state: self.state.clone(), _busy: lease, wire, deadline }))
     }
+    /// Request a refresh of all displays; host support/rate limits vary.
+    #[napi]
+    pub fn request_refresh_all(&self, timeout_ms: u32) -> Result<AsyncTask<VideoControlTask>> {
+        self.video_control_task(remote_protocol::video_control::VideoControl::RefreshAll, timeout_ms)
+    }
+    /// Request refresh for a current peer-reported display index.
+    #[napi]
+    pub fn request_refresh_display(&self, display: u32, timeout_ms: u32) -> Result<AsyncTask<VideoControlTask>> {
+        if display > i32::MAX as u32 { return Err(Error::from_reason("display index exceeds wire range")); }
+        self.video_control_task(remote_protocol::video_control::VideoControl::RefreshDisplay(display), timeout_ms)
+    }
+    /// Notify the host that a frame was processed; this is not automatic.
+    #[napi]
+    pub fn notify_video_received(&self, timeout_ms: u32) -> Result<AsyncTask<VideoControlTask>> {
+        self.video_control_task(remote_protocol::video_control::VideoControl::FrameReceived, timeout_ms)
+    }
     /// Receive one message on a worker. Receive timeout closes the connection.
     #[napi]
     pub fn receive(&self, timeout_ms: u32) -> Result<AsyncTask<ReceiveTask>> {
@@ -155,6 +171,29 @@ impl Viewer {
         if let Some(mut viewer) = state.take() { viewer.close(); }
         Ok(())
     }
+}
+
+impl Viewer {
+    fn video_control_task(&self, control: remote_protocol::video_control::VideoControl, timeout_ms: u32) -> Result<AsyncTask<VideoControlTask>> {
+        let deadline = wait(timeout_ms)?;
+        let lease = BusyLease::acquire(&self.state)?;
+        Ok(AsyncTask::new(VideoControlTask { state: self.state.clone(), _busy: lease, control, deadline }))
+    }
+}
+
+pub struct VideoControlTask {
+    state: Arc<ViewerState>, _busy: BusyLease,
+    control: remote_protocol::video_control::VideoControl, deadline: Duration,
+}
+impl Task for VideoControlTask {
+    type Output = ();
+    type JsValue = ();
+    fn compute(&mut self) -> Result<()> {
+        let mut lock = self.state.viewer.lock().map_err(|_| Error::from_reason("viewer state poisoned"))?;
+        let viewer = lock.as_mut().ok_or_else(|| Error::from_reason("viewer is closed"))?;
+        runtime()?.block_on(viewer.send_video_control(self.control, self.deadline)).map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
 }
 
 pub struct ConnectTask {
