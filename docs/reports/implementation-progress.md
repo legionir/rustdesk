@@ -1,5 +1,14 @@
 # RemoteCore progress
 
+> Current status: extraction is incomplete. The increments below are historical;
+> later sections supersede earlier statements about features. The latest local
+> code adds a caller-driven session-bound capture pump, cursor wire/cache APIs
+> and Windows cursor-position sampling. These additions, along with all work
+> after local transport CI run 41395071344, have not been built or tested. No
+> secure host/viewer, peer-bound authorization, standalone verified build,
+> complete Windows input/cursor shape support, or Node network/session API is
+> available. No post-deferral CI has been run.
+
 ## Windows-first capture and codec increment
 
 Commit `b869d83` adds a packed BGRA/RGBA-to-I420 bridge using the same libyuv calls as `libs/scrap/src/common/convert.rs`, with stride/buffer validation before calling native code. The existing software codec adapters provide VP8, VP9 and AV1. H.264/H.265 and hardware paths remain unadapted; none of RustDesk's existing functionality has been removed. Recreate the encoder when a display changes size; other pixel formats and capture-to-encoder zero-copy are not implemented.
@@ -92,3 +101,20 @@ The opt-in source features preserve prerequisite relationships (`drm` enables
 `wayland`; `vram` enables `hwcodec`). `mediacodec` follows an Android-specific
 source path and is not a promise of desktop compilation. Feature combinations
 remain unbuilt and require real native-dependency and platform verification.
+
+## Caller-driven capture and cursor increment (not tested)
+
+`CapturePump` ties an authorized session ID, exact display handle and software
+encoder together; it checks permissions before capture and sends one frame per
+caller invocation over the existing local or network interface. It performs
+blocking native work and does not create a server, authenticate a peer, or
+automatically clean up the session when dropped. Hotplug, cancellation,
+concurrency, real desktop and resource behavior remain to be tested.
+
+`remote-protocol::cursor` implements the source cursor data, ID, position and
+request messages, with source-compatible zstd limits and a bounded decoded
+shape LRU. Windows current-desktop cursor position/visibility sampling is
+available separately, but source portable-service capture and actual cursor
+shapes are not extracted. A temporary Windows handle is not the upstream
+content-derived ID. Node cannot yet consume cursor events. All of this is
+unbuilt, untested, and not security audited.

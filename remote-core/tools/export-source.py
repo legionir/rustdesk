@@ -81,7 +81,7 @@ def main():
     # Capture exact objects, not uncommitted working-tree files. A missing
     # object/path is a hard failure, before creating the destination.
     source_tar = archive(SOURCE, BASE, SOURCE_PATHS)
-    core_tar = archive(SOURCE, core, ["remote-core"])
+    core_tar = archive(SOURCE, core, ["remote-core", "docs"])
     common_tar = archive(common_repo, COMMON, prefix="libs/hbb_common/")
     destination.mkdir()
     try:
@@ -99,7 +99,7 @@ def main():
             "Exported only committed files; uncommitted changes are not included.",
             "Source archives (SHA-256):", "",
             f"- RustDesk selected libraries and root files: `{hashlib.sha256(source_tar).hexdigest()}`",
-            f"- remote-core workspace: `{hashlib.sha256(core_tar).hexdigest()}`",
+            f"- remote-core workspace and documentation: `{hashlib.sha256(core_tar).hexdigest()}`",
             f"- hbb_common: `{hashlib.sha256(common_tar).hexdigest()}`", "",
             "Run Cargo from `remote-core/`. The inherited lockfile is a starting point,",
             "not a confirmed locked build; the new workspace may need resolution.",

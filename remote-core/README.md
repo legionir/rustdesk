@@ -30,11 +30,11 @@ and dependencies before distribution; the final licensing decision is pending.
 ## Software codec prototype
 
 `remote-codec` adapts the source VP8/VP9/libaom AV1 encoder/decoder for padded
-I420 input and packed CPU output. The implementation is experimental: it does
-not yet offer H.264/H.265, hardware codecs,
-packet-loss recovery, codec negotiation or resolution changes in-place. These
-capabilities have not been removed from RustDesk; they have not yet been
-adapted. The decoder must not be used with untrusted streams: packet size checks
+I420 input and packed CPU output. An opt-in H.264/H.265 RAM hardware adapter
+and a bounded wrapper around the source's global codec negotiation have since
+been added, but are not tested or integrated into a complete session. VRAM,
+packet-loss recovery and resolution changes in-place are not implemented in
+these adapters. None of the source capabilities has been removed from RustDesk. The decoder must not be used with untrusted streams: packet size checks
 do not limit dimensions or native decoder allocations. No security audit has
 been performed.
 
