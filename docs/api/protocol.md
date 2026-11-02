@@ -43,3 +43,11 @@ implement keyboard/touch dispatch, display mapping, input arbitration, transport
 binding or a trusted consent flow. Its distinct mouse permission differs from
 upstream's shared keyboard gate and must be reviewed. Tests use a fake backend
 and have not been run; real Windows desktop behavior is unverified.
+
+`windows_keyboard::dispatch` accepts only a restricted set of unmodified
+legacy `ControlKey` messages, using the source's Windows virtual-key mappings.
+It rejects modifier keys/lists, lock and system actions, text, scan codes and
+other modes. Unlike RustDesk it does not synchronize OS modifier state, perform
+portable-service/desktop switching or generate repeats, so even supported keys
+are not a claim of complete compatibility. Its fake-backend tests are written
+but not run; real input delivery is unverified.

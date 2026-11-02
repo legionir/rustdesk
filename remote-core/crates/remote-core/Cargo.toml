@@ -12,6 +12,8 @@ remote-protocol = { path = "../remote-protocol" }
 remote-transport = { path = "../remote-transport" }
 
 [dev-dependencies]
+base = { path = "../../../libs/base" }
+hbb_common = { path = "../../../libs/hbb_common" }
 remote-rustdesk-websocket = { path = "../../adapters/rustdesk" }
 remote-capture = { path = "../remote-capture" }
 remote-security = { path = "../remote-security" }

@@ -287,6 +287,88 @@ pub mod windows_mouse {
     }
 }
 
+/// Restricted Windows legacy control-key dispatcher.
+///
+/// Only control keys without modifiers are handled. The original RustDesk
+/// keyboard service has extensive layout, modifier, lock-state, repeat,
+/// portable-service and text handling; those paths are not replicated here.
+/// This API is not safe to expose without trusted authorization and input
+/// arbitration, and is not a complete RustDesk keyboard implementation.
+pub mod windows_keyboard {
+    use super::{HostInputError, HostInputSession};
+    use remote_input::{InputBackend, VirtualKey};
+    use remote_protocol::{Envelope, KeyboardPayload, ProtocolError};
+    use std::{error::Error, fmt};
+
+    /// Failure inspecting or applying a keyboard message.
+    #[derive(Debug)]
+    pub enum DispatchError {
+        /// Not a keyboard envelope.
+        Protocol(ProtocolError),
+        /// A keyboard mode, payload or modifier is not implemented here.
+        Unsupported(&'static str),
+        /// Session authorization or backend failed.
+        Host(HostInputError),
+    }
+    impl fmt::Display for DispatchError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Protocol(e) => write!(f, "keyboard protocol: {e}"),
+                Self::Unsupported(e) => write!(f, "unsupported keyboard event: {e}"),
+                Self::Host(e) => write!(f, "keyboard dispatch: {e}"),
+            }
+        }
+    }
+    impl Error for DispatchError {}
+    impl From<ProtocolError> for DispatchError { fn from(e: ProtocolError) -> Self { Self::Protocol(e) } }
+    impl From<HostInputError> for DispatchError { fn from(e: HostInputError) -> Self { Self::Host(e) } }
+
+    // ControlKey numeric values are from message.proto. Virtual-key values match
+    // src/server/input_service.rs KEY_MAP and libs/enigo/src/win/keycodes.rs.
+    // Modifiers, lock keys and system actions are deliberately excluded.
+    fn plain_control_vk(value: i32) -> Option<u16> {
+        Some(match value {
+            2 => 0x08, 5 => 0x2e, 6 => 0x28, 7 => 0x23, 8 => 0x1b,
+            9 => 0x70, 10 => 0x79, 11 => 0x7a, 12 => 0x7b,
+            13 => 0x71, 14 => 0x72, 15 => 0x73, 16 => 0x74,
+            17 => 0x75, 18 => 0x76, 19 => 0x77, 20 => 0x78,
+            21 => 0x24, 22 => 0x25, 25 => 0x22, 26 => 0x21,
+            27 => 0x0d, 28 => 0x27, 30 => 0x20, 31 => 0x09, 32 => 0x26,
+            33..=42 => 0x60 + (value as u16 - 33),
+            43 => 0x03, 44 => 0x0c, 46 => 0x13,
+            54 => 0x29, 55 => 0x2a, 56 => 0x2b, 57 => 0x2c,
+            58 => 0x2d, 59 => 0x2f, 61 => 0x6c,
+            65 => 0x5d, 66 => 0x6a, 67 => 0x6b, 68 => 0x6d,
+            69 => 0x6e, 70 => 0x6f, 71 => 0x3d, 72 => 0x0d,
+            _ => return None,
+        })
+    }
+
+    /// Apply a non-modifier legacy control-key message to a Windows-style backend.
+    ///
+    /// A `press` is a down/up pair; otherwise the wire `down` bit determines
+    /// state. Repeat downs are suppressed by the input controller. Unlike the
+    /// original service this method does not synchronize global modifier state,
+    /// switch Windows desktops, support layout/text/scan codes, or run the
+    /// portable service. Those limitations can affect even accepted keys.
+    pub fn dispatch<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
+        host.session.check(remote_session::Action::ControlKeyboard).map_err(HostInputError::from)?;
+        let event = envelope.keyboard()?;
+        if event.mode() != 0 { return Err(DispatchError::Unsupported("non-legacy keyboard mode")); }
+        if event.modifiers().next().is_some() { return Err(DispatchError::Unsupported("modifier-bearing keyboard event")); }
+        let value = match event.payload() {
+            Some(KeyboardPayload::ControlKey(value)) => value,
+            _ => return Err(DispatchError::Unsupported("non-control-key payload")),
+        };
+        let code = plain_control_vk(value).ok_or(DispatchError::Unsupported("modifier, system, or unknown control key"))?;
+        let key = VirtualKey::new(code).map_err(|_| DispatchError::Unsupported("invalid virtual key"))?;
+        if event.press() { host.key_press(key)?; }
+        else if event.down() { host.key_down(key)?; }
+        else { host.key_up(key)?; }
+        Ok(())
+    }
+}
+
 /// Capture/codec/protocol/transport integration for a single video stream.
 ///
 /// This module is experimental and must not decode untrusted network data. It
