@@ -75,6 +75,8 @@ export class Viewer {
   sendText(text: string, timeoutMs: number): Promise<void>;
   /** Source Map-mode Windows physical scan code; host must authorize and enable it. */
   sendWindowsScanCode(code: number, down: boolean, timeoutMs: number): Promise<void>;
+  /** Source Translate-mode position code; host must authorize and enable it. */
+  sendWindowsTranslateCode(code: number, down: boolean, timeoutMs: number): Promise<void>;
   sendMouseWithModifiers(mask: number, x: number, y: number, modifiers: number[], timeoutMs: number): Promise<void>;
   /** These are requests/notifications only; they do not refresh or decode video locally. */
   advertiseDecoding(options: ViewerDecodingOptions, timeoutMs: number): Promise<void>;

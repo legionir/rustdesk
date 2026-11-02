@@ -160,3 +160,13 @@ modifier-bearing wire messages, press semantics and codes outside the stated
 range; it does not provide desktop switching, source modifier/lock-state repair,
 repeat or Translate mode. No real Windows input, rdev build or fake test has run.
 It is not enabled for the view-only Node host and is not an OS-wide lock.
+
+Windows Translate-mode `Chr` handling is also available through a separate
+explicit host opt-in: source `translate_process_code` selects a raw scan when
+the upper 16 bits are zero, otherwise a raw Windows virtual key. The input
+controller tracks these separately from Enigo keys and refuses simultaneous
+mixed representations, so some normal shortcuts and modifiers cannot work.
+It does not implement Translate-mode sequence/hotkey behavior, OS modifier
+repair, keyboard layout synchronization, repeat or portable-service desktop
+switching. Node exposes a wire sender only; the local Node host remains
+view-only. Native behavior, cleanup and tests remain unverified.
