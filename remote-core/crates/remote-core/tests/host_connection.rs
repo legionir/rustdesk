@@ -106,6 +106,13 @@ async fn provisional_host_and_viewer_login_then_mouse() {
         host.send_login_success(&info, WAIT).await.unwrap();
     }, viewer.login(&identity, "shared-test-secret", WAIT));
     let _ = server; assert_eq!(client.unwrap(), info);
+    assert!(host.send_source_keyboard_permission(true, WAIT).await.is_err());
+    let (notice_sent, notice) = tokio::join!(host.send_source_keyboard_permission(false, WAIT), viewer.receive(WAIT));
+    notice_sent.unwrap();
+    match notice.unwrap() {
+        remote_core::viewer_connection::ViewerEvent::Permission(n) => assert_eq!((n.permission, n.enabled), (0, false)),
+        _ => panic!("expected source permission notice"),
+    }
     let mouse = Envelope::mouse_event(MouseEvent { mask: 0, x: 7, y: -4 });
     let (sent, received) = tokio::join!(viewer.send_input(&mouse, WAIT), host.receive_input(WAIT));
     sent.unwrap(); received.unwrap();
