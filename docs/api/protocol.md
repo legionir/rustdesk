@@ -32,3 +32,14 @@ and LoginRequest messages without replacing the schema. Non-desktop request
 modes remain intact but are not handled by the desktop view. The fields are
 untrusted, and the adapter does not enforce 2FA, token validation, owner
 approval, peer identity, or message replay protection.
+
+The experimental `windows_mouse::dispatch` handles a limited subset of mouse
+messages through the session guard: absolute/relative movement, five buttons,
+and ordinary Windows wheel events. Its constants and Windows wheel signs/units
+come from `src/common.rs::input` and `src/server/input_service.rs`; relative
+deltas are clamped to ±10,000. It rejects modifier-bearing mouse events,
+trackpad and unknown event forms; their protobuf remains unchanged. It does not
+implement keyboard/touch dispatch, display mapping, input arbitration, transport
+binding or a trusted consent flow. Its distinct mouse permission differs from
+upstream's shared keyboard gate and must be reviewed. Tests use a fake backend
+and have not been run; real Windows desktop behavior is unverified.

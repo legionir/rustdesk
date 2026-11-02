@@ -26,6 +26,10 @@ pub enum MouseButton {
     Right,
     /// Middle button.
     Middle,
+    /// Browser/back extra button.
+    Back,
+    /// Browser/forward extra button.
+    Forward,
 }
 
 /// A Windows virtual-key code. This is not a hardware scan code or Unicode text.
@@ -49,6 +53,10 @@ impl VirtualKey {
 pub trait InputBackend {
     /// Move to a virtual-desktop coordinate.
     fn move_to(&mut self, x: i32, y: i32) -> io::Result<()>;
+    /// Move by relative pixel deltas. Backends may decline this operation.
+    fn move_relative(&mut self, _x: i32, _y: i32) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "relative mouse movement not supported"))
+    }
     /// Press a mouse button.
     fn mouse_down(&mut self, button: MouseButton) -> io::Result<()>;
     /// Release a mouse button.
@@ -121,6 +129,12 @@ impl<B: InputBackend> InputController<B> {
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<(), InputError> {
         self.allowed(self.permissions.mouse)?;
         self.backend.move_to(x, y)?;
+        Ok(())
+    }
+    /// Move by relative pixel deltas, after checking mouse permission.
+    pub fn move_relative(&mut self, x: i32, y: i32) -> Result<(), InputError> {
+        self.allowed(self.permissions.mouse)?;
+        self.backend.move_relative(x, y)?;
         Ok(())
     }
     /// Send horizontal and vertical scroll deltas in backend units.
@@ -223,10 +237,11 @@ pub mod windows {
         pub fn new() -> Self { Self { inner: Enigo::new() } }
     }
     fn button(b: MouseButton) -> enigo::MouseButton {
-        match b { MouseButton::Left => enigo::MouseButton::Left, MouseButton::Right => enigo::MouseButton::Right, MouseButton::Middle => enigo::MouseButton::Middle }
+        match b { MouseButton::Left => enigo::MouseButton::Left, MouseButton::Right => enigo::MouseButton::Right, MouseButton::Middle => enigo::MouseButton::Middle, MouseButton::Back => enigo::MouseButton::Back, MouseButton::Forward => enigo::MouseButton::Forward }
     }
     impl InputBackend for WindowsInput {
         fn move_to(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_move_to(x, y); Ok(()) }
+        fn move_relative(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_move_relative(x, y); Ok(()) }
         fn mouse_down(&mut self, b: MouseButton) -> io::Result<()> { self.inner.mouse_down(button(b)).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn mouse_up(&mut self, b: MouseButton) -> io::Result<()> { self.inner.mouse_up(button(b)); Ok(()) }
         fn scroll(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_scroll_x(x); self.inner.mouse_scroll_y(y); Ok(()) }

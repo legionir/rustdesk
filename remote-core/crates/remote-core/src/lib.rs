@@ -145,6 +145,12 @@ impl<B: InputBackend> HostInputSession<B> {
         self.input.move_to(x, y)?;
         Ok(())
     }
+    /// Move the mouse by relative pixels, after authorization.
+    pub fn move_relative(&mut self, x: i32, y: i32) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlMouse)?;
+        self.input.move_relative(x, y)?;
+        Ok(())
+    }
     /// Press a mouse button, after authorization.
     pub fn mouse_down(&mut self, button: MouseButton) -> Result<(), HostInputError> {
         self.session.check(Action::ControlMouse)?;
@@ -200,6 +206,84 @@ impl<B: InputBackend> HostInputSession<B> {
             (Ok(()), Err(session)) => Err(HostInputError::Session(session)),
             (Err(input), Err(session)) => Err(HostInputError::Cleanup { input, session }),
         }
+    }
+}
+
+/// Windows mouse input dispatcher for the supported RustDesk event subset.
+///
+/// This deliberately refuses modifier-bearing events and trackpad messages;
+/// it does not silently reinterpret them. Keyboard translation, touch, consent,
+/// session-to-transport binding and inter-session input arbitration are not
+/// provided. The caller must protect this API from untrusted peers and ensure
+/// the backend implements Windows input units and virtual-desktop coordinates.
+pub mod windows_mouse {
+    use super::{HostInputError, HostInputSession};
+    use remote_input::{InputBackend, MouseButton};
+    use remote_protocol::{Envelope, ProtocolError};
+    use std::{error::Error, fmt};
+
+    /// Failure inspecting or applying a mouse event.
+    #[derive(Debug)]
+    pub enum DispatchError {
+        /// The envelope is not a RustDesk mouse message.
+        Protocol(ProtocolError),
+        /// This provisional dispatcher does not implement the event form.
+        Unsupported(&'static str),
+        /// A wheel delta could not be represented safely in Windows units.
+        InvalidWheelDelta,
+        /// Session authorization or OS backend failed.
+        Host(HostInputError),
+    }
+    impl fmt::Display for DispatchError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Protocol(e) => write!(f, "mouse protocol: {e}"),
+                Self::Unsupported(e) => write!(f, "unsupported mouse event: {e}"),
+                Self::InvalidWheelDelta => f.write_str("mouse wheel delta exceeds Windows range"),
+                Self::Host(e) => write!(f, "mouse dispatch: {e}"),
+            }
+        }
+    }
+    impl Error for DispatchError {}
+    impl From<ProtocolError> for DispatchError { fn from(e: ProtocolError) -> Self { Self::Protocol(e) } }
+    impl From<HostInputError> for DispatchError { fn from(e: HostInputError) -> Self { Self::Host(e) } }
+
+    /// Apply one RustDesk mouse envelope using Windows source semantics.
+    ///
+    /// Absolute positions use virtual-desktop coordinates; selecting/mapping a
+    /// monitor is the caller's responsibility. Relative deltas are clamped to
+    /// ±10,000 as in `src/server/input_service.rs`. Ordinary wheel deltas use
+    /// `(-x * 120, y * 120)` Windows units. Modifiers and trackpad events are
+    /// explicitly rejected until their source behavior is extracted. The session
+    /// guard checks `control_mouse`, whose policy differs from upstream's
+    /// shared `peer_keyboard_enabled()` gate and needs security review.
+    pub fn dispatch<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
+        // Check authorization even for invalid forms before exposing dispatch.
+        host.session.check(remote_session::Action::ControlMouse).map_err(HostInputError::from)?;
+        let event = envelope.mouse()?;
+        if envelope.mouse_modifiers()?.next().is_some() { return Err(DispatchError::Unsupported("modifier-bearing events")); }
+        let action = event.mask & 0x7;
+        let buttons = event.mask >> 3;
+        match action {
+            0 => host.move_to(event.x, event.y)?,
+            1 | 2 => {
+                let button = match buttons {
+                    1 => MouseButton::Left, 2 => MouseButton::Right, 4 => MouseButton::Middle,
+                    8 => MouseButton::Back, 16 => MouseButton::Forward,
+                    _ => return Err(DispatchError::Unsupported("unknown or combined mouse buttons")),
+                };
+                if action == 1 { host.mouse_down(button)?; } else { host.mouse_up(button)?; }
+            }
+            3 => {
+                let x = event.x.checked_neg().and_then(|n| n.checked_mul(120)).ok_or(DispatchError::InvalidWheelDelta)?;
+                let y = event.y.checked_mul(120).ok_or(DispatchError::InvalidWheelDelta)?;
+                host.scroll(x, y)?;
+            }
+            4 => return Err(DispatchError::Unsupported("trackpad")),
+            5 => host.move_relative(event.x.clamp(-10_000, 10_000), event.y.clamp(-10_000, 10_000))?,
+            _ => return Err(DispatchError::Unsupported("unknown event type")),
+        }
+        Ok(())
     }
 }
 
