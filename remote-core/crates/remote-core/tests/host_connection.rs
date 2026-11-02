@@ -175,3 +175,25 @@ async fn preauth_admission_is_retained_during_pinned_identity_handshake() {
     host.close().unwrap(); viewer.close();
     assert_eq!(admission.active().unwrap(), 0);
 }
+
+#[cfg(feature = "source-security")]
+#[tokio::test]
+async fn cancelled_pre_auth_handshake_closes_socket_and_releases_permit() {
+    use hbb_common::sodiumoxide::{self, crypto::sign};
+    sodiumoxide::init().unwrap();
+    let (socket, mut viewer_socket) = sockets().await;
+    let admission = AdmissionController::new(AdmissionLimits::default()).unwrap();
+    let permit = admission.admit("127.0.0.1".parse().unwrap()).unwrap();
+    let id = SessionId::new([12; 16]).unwrap();
+    let principal = Principal::new("viewer".into()).unwrap();
+    let verifier = PasswordVerifier::new(id, principal, "test", "salt", WAIT).unwrap();
+    let (_, host_secret) = sign::gen_keypair();
+    let result = tokio::time::timeout(Duration::from_millis(20),
+        remote_core::admitted_host::accept(socket, permit, id, Fake::default(), verifier, "host", &host_secret, WAIT)).await;
+    assert!(result.is_err());
+    assert_eq!(admission.active().unwrap(), 0);
+    // The signed challenge may already have been queued; the next receive must
+    // fail after it has been consumed. No credentials were exchanged.
+    let _ = viewer_socket.receive(WAIT).await;
+    assert!(viewer_socket.receive(WAIT).await.is_err());
+}
