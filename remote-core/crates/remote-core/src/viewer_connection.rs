@@ -179,6 +179,17 @@ impl<T: NetworkTransport> ViewerConnection<T> {
             Err(error) => { self.abort(); Err(ViewerError::Network(error)) },
         }
     }
+    /// Ask a supporting host to resend a cursor shape evicted by the viewer.
+    /// The host may have evicted it too; this is not guaranteed to get a reply.
+    pub async fn request_cursor_shape(&mut self, id: u64, deadline: Duration) -> Result<(), ViewerError> {
+        if self.phase != Phase::Connected || deadline.is_zero() { return Err(ViewerError::InvalidState); }
+        let wire = Envelope::request_cursor_shape_event(id).encode(self.max_bytes)?;
+        self.phase = Phase::Busy;
+        match self.transport.send(&wire, deadline).await {
+            Ok(()) => { self.phase = Phase::Connected; Ok(()) },
+            Err(error) => { self.abort(); Err(ViewerError::Network(error)) },
+        }
+    }
     /// Receive one message. Cursor decoding is bounded but not audited; video
     /// remains compressed. On cancellation close/drop the Busy connection.
     pub async fn receive(&mut self, deadline: Duration) -> Result<ViewerEvent, ViewerError> {

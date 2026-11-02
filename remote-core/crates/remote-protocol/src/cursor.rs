@@ -126,6 +126,17 @@ impl Envelope {
         inner.set_cursor_position(message_proto::CursorPosition { x: position.x, y: position.y, ..Default::default() });
         Self { inner }
     }
+    /// Inspect an existing cursor-shape resend request. This untrusted ID is
+    /// not authorization or proof that the host still retains the shape.
+    pub fn requested_cursor_shape(&self) -> Result<u64, CursorError> {
+        match self.inner.union.as_ref() {
+            Some(message::Union::Misc(misc)) => match misc.union.as_ref() {
+                Some(message_proto::misc::Union::RequestCursorData(id)) => Ok(*id),
+                _ => Err(CursorError::UnexpectedMessage),
+            },
+            _ => Err(CursorError::UnexpectedMessage),
+        }
+    }
     /// Ask a supporting RustDesk host to resend a cached shape by ID.
     /// Availability depends on peer version and is not guaranteed.
     pub fn request_cursor_shape_event(id: u64) -> Self {
@@ -205,6 +216,7 @@ mod tests {
         let decoded = Envelope::decode(&wire, 4096).unwrap().cursor_shape().unwrap();
         assert_eq!(decoded, input);
         assert_eq!(Envelope::cursor_id_event(input.id).cursor_id().unwrap(), input.id);
+        assert_eq!(Envelope::request_cursor_shape_event(input.id).requested_cursor_shape().unwrap(), input.id);
         let pos = CursorPosition { x: -20, y: 10 };
         assert_eq!(Envelope::cursor_position_event(pos).cursor_position().unwrap(), pos);
     }
