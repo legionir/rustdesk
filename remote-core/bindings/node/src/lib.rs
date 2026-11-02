@@ -216,7 +216,9 @@ pub fn encode_frame(data: Buffer, options: EncodeOptions) -> Result<AsyncTask<En
     };
     let row_bytes = (options.width as usize).checked_mul(4).ok_or_else(|| Error::from_reason("row size overflow"))?;
     let stride = options.stride as usize;
-    let required = (options.height as usize - 1).checked_mul(stride).and_then(|n| n.checked_add(row_bytes))
+    // Match SoftwareEncoder::encode_packed: every row, including the last,
+    // must have the full stride available before native conversion.
+    let required = (options.height as usize).checked_mul(stride)
         .ok_or_else(|| Error::from_reason("pixel buffer size overflow"))?;
     if stride < row_bytes || data.len() < required || data.len() > MAX_INPUT_BYTES {
         return Err(Error::from_reason("invalid stride or pixel buffer size"));

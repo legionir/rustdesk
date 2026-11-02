@@ -3,6 +3,10 @@
 //! This API is not hardened for untrusted bitstreams. It does not yet provide
 //! all RustDesk codecs, negotiation, hardware acceleration or recovery policy.
 
+/// Optional RustDesk H.264/H.265 RAM-encoder adapter.
+#[cfg(feature = "hwcodec")]
+pub mod hardware;
+
 use std::io;
 use base::message_proto::{video_frame, EncodedVideoFrame, EncodedVideoFrames};
 use scrap::{codec::{Decoder, Encoder, EncoderCfg}, aom::AomEncoderConfig, CodecFormat, EncodeInput, ImageFormat, ImageRgb, ImageTexture, VpxEncoderConfig, VpxVideoCodecId};

@@ -80,3 +80,10 @@ encoder and a capture-to-encode example, plus unrun synthetic tests. The source
 `wayland`, `drm`, `hwcodec`, `vram` and `mediacodec` feature flags are forwarded,
 but the feature-specific public integrations, native builds and tests remain
 incomplete. No new build, test or CI was run.
+
+A provisional `hwcodec`-gated adapter now uses RustDesk's cached H.264/H.265
+RAM encoder and accepts validated NV12 or BGRA/RGBA input. Source encoder init
+can change process-global codec state; source discovery/cache and driver/FFmpeg
+prerequisites remain. The adapter does not implement negotiation, hardware
+decode or VRAM texture encoding. Its layout and opt-in real-GPU tests are
+written but not run, and no hardware availability or safety is claimed.

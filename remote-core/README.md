@@ -222,3 +222,11 @@ all hardware codecs, GPU texture handling, Wayland portal setup or mobile
 capture through the current public adapters. Feature combinations, extra native
 prerequisites and platform behavior remain untested. The software encoder API
 still supports only VP8, VP9 and AV1.
+
+With the opt-in `hwcodec` feature, `remote-codec::hardware` wraps RustDesk's
+cached H.264/H.265 RAM encoder selection and NV12/packed conversion. It does
+not automatically fall back, negotiate codecs, decode, handle VRAM textures or
+prove a backend is truly GPU accelerated. It uses the source's process-global
+hardware config and can mutate it on encoder failure; Windows native FFmpeg,
+driver and configuration prerequisites remain. This code and its ignored
+real-hardware test have not been built or run.
