@@ -44,7 +44,7 @@ impl Lease {
     }
 }
 impl Drop for Lease { fn drop(&mut self) { self.0.store(false, Ordering::Release); } }
-struct ListenerData {
+pub struct ListenerData {
     listener: DirectTcpListener,
     host_id: String,
     secret: sign::SecretKey,
@@ -68,7 +68,7 @@ impl ListenerBusy {
     }
 }
 impl Drop for ListenerBusy { fn drop(&mut self) { self.0.busy.store(false, Ordering::Release); } }
-struct SessionData { host: NativeHost, id: SessionId, principal: Principal, claims: LoginClaims }
+pub struct SessionData { host: NativeHost, id: SessionId, principal: Principal, claims: LoginClaims, approved_displays: Option<Vec<remote_capture::DisplayInfo>> }
 struct SessionState { data: Mutex<Option<SessionData>>, busy: AtomicBool, _lease: Lease }
 struct SessionBusy(Arc<SessionState>);
 impl SessionBusy {
@@ -167,7 +167,7 @@ impl Task for AcceptTask {
             let verifier = PasswordVerifier::new(id, principal.clone(), &data.password, &salt, remaining(end)?).map_err(js_error)?;
             let mut host = admitted_host::accept(socket, permit, id, NoInput, verifier, &data.host_id, &data.secret, remaining(end)?).await.map_err(js_error)?;
             let claims = host.receive_password_login(remaining(end)?).await.map_err(js_error)?;
-            Ok(SessionData { host, id, principal, claims })
+            Ok(SessionData { host, id, principal, claims, approved_displays: None })
         })
     }
     fn resolve(&mut self, _: Env, output: Self::Output) -> Result<LocalHostSession> {
@@ -200,12 +200,27 @@ impl LocalHostSession {
         let busy = SessionBusy::acquire(&self.state)?;
         Ok(AsyncTask::new(ApproveTask { state: self.state.clone(), _busy: busy, deadline }))
     }
+    /// Capture and send one independently encoded VP9 frame for an approved
+    /// display. The caller must separately confirm the viewer supports VP9.
+    /// Reopens capture and creates an encoder on each call; this is not an
+    /// efficient continuous video stream. Metadata comparisons do not prove a
+    /// stable display identity when hardware or desktops change. A changed
+    /// enumeration is rejected and the session must be re-approved.
+    #[napi]
+    pub fn send_one_vp9_frame(&self, display_index: u32, confirm_viewer_vp9: bool, capture_timeout_ms: u32, send_timeout_ms: u32) -> Result<AsyncTask<SendFrameTask>> {
+        if !confirm_viewer_vp9 { return Err(Error::from_reason("viewer VP9 support must be explicitly confirmed")); }
+        if capture_timeout_ms == 0 || capture_timeout_ms > 2000 { return Err(Error::from_reason("captureTimeoutMs must be 1..2000")); }
+        let send_wait = wait(send_timeout_ms)?;
+        let busy = SessionBusy::acquire(&self.state)?;
+        Ok(AsyncTask::new(SendFrameTask { state: self.state.clone(), _busy: busy, display_index, capture_wait: Duration::from_millis(capture_timeout_ms.into()), send_wait }))
+    }
     /// Close/reject the session. Must not overlap another session operation.
     #[napi]
     pub fn close(&self) -> Result<()> {
         let _busy = SessionBusy::acquire(&self.state)?;
         let mut data = self.state.data.lock().map_err(|_| Error::from_reason("host session state poisoned"))?;
-        if let Some(mut data) = data.take() { data.host.close().map_err(js_error)?; }
+        if let Some(session) = data.as_mut() { session.host.close().map_err(js_error)?; }
+        data.take();
         Ok(())
     }
 }
@@ -222,8 +237,10 @@ impl Task for ApproveTask {
         let displays = remote_capture::displays().map_err(js_error)?;
         if displays.is_empty() || displays.len() > remote_protocol::desktop::MAX_DISPLAYS { return Err(Error::from_reason("invalid display count")); }
         let mut infos = Vec::with_capacity(displays.len());
+        let mut approved_displays = Vec::with_capacity(displays.len());
         for display in displays {
             let d = display.info();
+            approved_displays.push(d.clone());
             let width = i32::try_from(d.width).map_err(js_error)?;
             let height = i32::try_from(d.height).map_err(js_error)?;
             infos.push(DisplayInfo { x: d.x, y: d.y, width, height, name: String::new(), online: d.online, cursor_embedded: false, scale: 0.0 });
@@ -233,7 +250,37 @@ impl Task for ApproveTask {
         let mut approval = OwnerApproval::new(session.id, session.principal.clone(), Some(permissions));
         session.host.authorize(permissions, &mut approval).map_err(js_error)?;
         session.host.set_authorized_message_limit(POSTAUTH).map_err(js_error)?;
-        runtime()?.block_on(session.host.send_login_success(&info, self.deadline)).map_err(js_error)
+        runtime()?.block_on(session.host.send_login_success(&info, self.deadline)).map_err(js_error)?;
+        session.approved_displays = Some(approved_displays);
+        Ok(())
+    }
+    fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
+}
+
+/// A one-shot local capture/encoder operation, run on a Node worker.
+pub struct SendFrameTask { state: Arc<SessionState>, _busy: SessionBusy, display_index: u32, capture_wait: Duration, send_wait: Duration }
+impl Task for SendFrameTask {
+    type Output = ();
+    type JsValue = ();
+    fn compute(&mut self) -> Result<()> {
+        use remote_codec::{Codec, EncoderConfig};
+        let mut lock = self.state.data.lock().map_err(|_| Error::from_reason("host session state poisoned"))?;
+        let session = lock.as_mut().ok_or_else(|| Error::from_reason("host session closed"))?;
+        let index = usize::try_from(self.display_index).map_err(js_error)?;
+        let approved = session.approved_displays.as_ref().and_then(|items| items.get(index)).ok_or_else(|| Error::from_reason("display was not approved"))?;
+        let display = remote_capture::displays().map_err(js_error)?.into_iter().nth(index).ok_or_else(|| Error::from_reason("display is no longer available"))?;
+        if display.info() != approved { return Err(Error::from_reason("display enumeration changed; re-approval required")); }
+        let width = u32::try_from(approved.width).map_err(js_error)?;
+        let height = u32::try_from(approved.height).map_err(js_error)?;
+        let display_wire = i32::try_from(self.display_index).map_err(js_error)?;
+        let config = EncoderConfig { codec: Codec::Vp9, width, height, quality: 1.0, keyframe_interval: Some(30) };
+        let mut pump = session.host.start_capture(display, display_wire, config, POSTAUTH).map_err(js_error)?;
+        let result = runtime()?.block_on(session.host.send_capture(&mut pump, self.capture_wait, self.send_wait, 0));
+        let stop = session.host.stop_capture(&mut pump);
+        drop(pump);
+        result.map_err(js_error)?;
+        stop.map_err(js_error)?;
+        Ok(())
     }
     fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
 }
