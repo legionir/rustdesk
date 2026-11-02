@@ -14,9 +14,10 @@ unbuilt and untested by request; do not use the current prototype as a product.
   configuration, secure ownership/approval and resource shutdown.
 - `src/server/input_service.rs` implements keyboard modes, modifiers, lock
   state, key-repeat/fixup, desktop switching, pointer/touch and session routing.
-  `windows_keyboard`, `windows_mouse`, `tracked_modifiers` and the Enigo adapter
-  cover only documented subsets. The opt-in modifier policy is intentionally
-  narrower than source behavior and requires compatibility and security review.
+  `windows_keyboard`, `windows_mouse`, `tracked_modifiers`, the Enigo adapter
+  and opt-in pinned-rdev scan path cover only documented subsets. The opt-in
+  modifier and Map-mode policies are intentionally narrower than source and
+  require compatibility, cleanup and security review on real Windows.
 - `src/platform/windows.rs::get_cursor_data` and `src/platform/windows.cc` have
   an experimental shape adapter, not verified against color masks, animation,
   scaling, UAC, secure desktop or portable service. Source portable-service

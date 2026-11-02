@@ -107,8 +107,9 @@ Rustls server configuration and an explicit acknowledgement token. The
 `admitted_host::accept_wss` composition retains a caller-acquired permit before
 TLS/HTTP upgrade, limits framing, then performs source host key exchange. It
 still returns a host requiring password verification and local approval. No
-HTTP origin/path policy, endpoint authentication, relay routing, aggregate DoS
-protection or secure certificate provisioning is supplied. The synthetic local
+default HTTP origin/path policy, endpoint authentication, relay routing, aggregate
+DoS protection or secure certificate provisioning is supplied. An optional
+caller-supplied upgrade policy is described below. The synthetic local
 TLS/source-key-exchange case has been written but not run. Neither component is
 reviewed or appropriate for public exposure.
 
