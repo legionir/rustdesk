@@ -155,3 +155,15 @@ real screen and require explicit local consent. They are not substitutes for a
 complete host, stable display identity, trusted approval UI, compatibility or
 security review. Tests were written but deliberately not executed; no new CI or
 build has run. See `docs/analysis/remaining-core-work.md` for outstanding gates.
+
+## Source QoS and Windows VRAM extraction (deferred validation)
+
+The prototype contains a bounded wrapper around the source video QoS algorithm
+and retains its baseline test fixtures, alongside optional caller-driven pacing,
+source-format delay probes and connection-wide ACK bookkeeping. The QoS wrapper
+requires explicit ABR configuration and bounds peer/display counts and delay
+inputs; it is not wired into an autonomous scheduler. The synchronous Windows
+VRAM capture/encoder adapter and session-bound sender expose source H.264/H.265
+texture encoding only under the `vram` feature. Both increments and their tests
+have not been built or executed. See the remaining-work analysis for exact
+source differences, native-resource assumptions and security limitations.

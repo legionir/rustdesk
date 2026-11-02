@@ -85,3 +85,29 @@ offline guessing. Before integrating a policy, resolve trusted peer-address
 attribution through proxies/WSS, shared-prefix reset semantics, bounded storage,
 concurrent attempts, persistence, lockout/DoS risk and auditing with the owner;
 do not silently treat self-reported IDs or HTTP headers as authenticated IPs.
+
+### Video QoS and Windows VRAM increment (unverified)
+
+`remote-codec::video_qos` now wraps a copy of the baseline
+`src/server/video_qos.rs` and its source test fixtures. The copy replaces the
+source global `enable-abr` option read with explicit caller configuration,
+preserves that setting when the final peer leaves, and saturates display-counter
+and bitrate additions. The wrapper bounds peer/display counts and untrusted
+measurement values. It does not provide the upstream service, timers, security
+or scheduling; its result may exceed the current software encoder's allowed
+quality range. Source `VideoReceived` is connection-wide, with no frame or
+monitor ID: the bounded helper in `remote-core::video_schedule` tracks pending
+viewers across displays but cannot distinguish late ACKs. `DelayProbe` uses the
+existing source `TestDelay` fields with `time = 0`; matching replies are neither
+nonce-protected nor authenticated. Pacing, probes, frame ACKs and application
+of QoS recommendations are all explicit caller responsibilities.
+
+On Windows with `vram`, `remote-capture::vram` now combines the source DXGI
+device and source VRAM encoder, with the encoder dropped before the capturer;
+`remote-core::vram_pump` connects it to an authorized caller-driven host session.
+Both retain the existing H.264/H.265 wire format. GPU/driver behavior, pointer
+lifetimes across native calls, capture consent, device loss, UAC/secure desktop,
+rotation, software fallback, decoding, interoperability and performance remain
+unverified; native allocations precede output-size checks. The source encoder's
+VRAM quality setter can hide driver errors. This is not a complete source video
+service, a tested Windows implementation, or a safe untrusted decoder.
