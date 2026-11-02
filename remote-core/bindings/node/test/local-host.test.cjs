@@ -37,3 +37,30 @@ test('abandoned pending approval expires and closes the viewer', async () => {
     host.close();
   }
 });
+
+test('opt-in interactive local screen host to viewer single frame',
+  { skip: process.env.REMOTE_CORE_ALLOW_REAL_CAPTURE !== '1' }, async () => {
+    // This reads a real screen. Run only with explicit owner authorization on
+    // a disposable interactive desktop. No frame is written to disk or logged.
+    const password = 'local-test-only';
+    const host = await core.listenLocalHost({ hostId: 'interactive-test', password, timeoutMs: 30000 });
+    let session, viewer;
+    try {
+      const connecting = core.connectViewer({ address: host.address(), expectedHostId: 'interactive-test', hostSigningKey: host.signingPublicKey(),
+        viewerId: 'test', viewerName: 'test', wireSessionId: '1', version: 'test', password, timeoutMs: 30000, maxMessageBytes: 8 * 1024 * 1024 });
+      connecting.catch(() => {});
+      session = await host.accept(30000);
+      await session.approveView(true, 30000);
+      viewer = await connecting;
+      const permission = await viewer.receive(30000);
+      assert.equal(permission.kind, 'permission'); assert.equal(permission.enabled, false);
+      const incoming = viewer.receive(30000); incoming.catch(() => {});
+      await session.sendOneVp9Frame(0, true, 2000, 30000);
+      const event = await incoming;
+      assert.equal(event.kind, 'video'); assert.equal(event.codec, 'vp9'); assert.ok(event.data.length > 0);
+    } finally {
+      if (viewer) viewer.close();
+      if (session) session.close();
+      host.close();
+    }
+  });

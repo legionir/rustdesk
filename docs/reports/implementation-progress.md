@@ -140,3 +140,18 @@ A detailed evidence-based list of remaining acceptance work is in
 `docs/analysis/remaining-core-work.md`. The candidate export records the exact
 source/prototype commits and archive hashes in `SOURCE_PROVENANCE.md`; it is not
 a versioned repository, tested build, dependency lock or licensing decision.
+
+## Current unverified integration increment
+
+Since the previous candidate export, the provisional Rust and Node APIs gained
+source video/permission/cursor control messages, decoder-capability handoff,
+optional video recovery bookkeeping, an admitted WSS accepted-socket host
+adapter and optional upgrade constraints. The Windows input adapter gained an
+explicit opt-in restricted Map-mode path using the pinned source rdev backend;
+it remains narrower than source and real OS behavior is unknown. The Node
+binding gained a view-only, loopback-only host and a WSS viewer. The host's
+one-frame capture example and `REMOTE_CORE_ALLOW_REAL_CAPTURE=1` test read a
+real screen and require explicit local consent. They are not substitutes for a
+complete host, stable display identity, trusted approval UI, compatibility or
+security review. Tests were written but deliberately not executed; no new CI or
+build has run. See `docs/analysis/remaining-core-work.md` for outstanding gates.
