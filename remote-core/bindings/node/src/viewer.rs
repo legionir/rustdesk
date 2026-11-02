@@ -95,6 +95,25 @@ fn to_js_peer(info: &PeerInfo) -> ViewerPeerInfo {
             name: d.name.clone(), online: d.online, cursor_embedded: d.cursor_embedded, scale: d.scale }).collect() }
 }
 
+/// Explicit external decoder claims. The addon does not probe or install any
+/// decoders, so only advertise implementations the application actually has.
+#[napi(object)]
+pub struct ViewerDecodingOptions {
+    pub vp8: bool, pub vp9: bool, pub av1: bool, pub h264: bool, pub h265: bool,
+    /// One of auto, vp8, vp9, av1, h264 or h265.
+    pub preference: String,
+}
+fn decoding_options(options: ViewerDecodingOptions) -> Result<remote_protocol::DecodingAdvertisement> {
+    use remote_protocol::CodecPreference;
+    let preference = match options.preference.as_str() {
+        "auto" => CodecPreference::Auto, "vp8" => CodecPreference::Vp8, "vp9" => CodecPreference::Vp9,
+        "av1" => CodecPreference::Av1, "h264" => CodecPreference::H264, "h265" => CodecPreference::H265,
+        _ => return Err(Error::from_reason("invalid decoding preference")),
+    };
+    Ok(remote_protocol::DecodingAdvertisement { vp8: options.vp8, vp9: options.vp9, av1: options.av1,
+        h264: options.h264, h265: options.h265, preference })
+}
+
 /// Node handle around one viewer. Operations are serialized: there is no
 /// simultaneous receive/send, queue, reconnect, renderer, decoder or host API.
 #[napi]
@@ -155,6 +174,15 @@ impl Viewer {
     pub fn notify_video_received(&self, timeout_ms: u32) -> Result<AsyncTask<VideoControlTask>> {
         self.video_control_task(remote_protocol::video_control::VideoControl::FrameReceived, timeout_ms)
     }
+    /// Advertise externally verified decoder support using the existing source
+    /// option message. This addon does not provide a network video decoder.
+    #[napi]
+    pub fn advertise_decoding(&self, options: ViewerDecodingOptions, timeout_ms: u32) -> Result<AsyncTask<AdvertiseDecodingTask>> {
+        let capabilities = decoding_options(options)?;
+        let deadline = wait(timeout_ms)?;
+        let lease = BusyLease::acquire(&self.state)?;
+        Ok(AsyncTask::new(AdvertiseDecodingTask { state: self.state.clone(), _busy: lease, capabilities, deadline }))
+    }
     /// Receive one message on a worker. Receive timeout closes the connection.
     #[napi]
     pub fn receive(&self, timeout_ms: u32) -> Result<AsyncTask<ReceiveTask>> {
@@ -192,6 +220,21 @@ impl Task for VideoControlTask {
         let mut lock = self.state.viewer.lock().map_err(|_| Error::from_reason("viewer state poisoned"))?;
         let viewer = lock.as_mut().ok_or_else(|| Error::from_reason("viewer is closed"))?;
         runtime()?.block_on(viewer.send_video_control(self.control, self.deadline)).map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
+}
+
+pub struct AdvertiseDecodingTask {
+    state: Arc<ViewerState>, _busy: BusyLease,
+    capabilities: remote_protocol::DecodingAdvertisement, deadline: Duration,
+}
+impl Task for AdvertiseDecodingTask {
+    type Output = ();
+    type JsValue = ();
+    fn compute(&mut self) -> Result<()> {
+        let mut lock = self.state.viewer.lock().map_err(|_| Error::from_reason("viewer state poisoned"))?;
+        let viewer = lock.as_mut().ok_or_else(|| Error::from_reason("viewer is closed"))?;
+        runtime()?.block_on(viewer.send_decoding_advertisement(self.capabilities, self.deadline)).map_err(js_error)
     }
     fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
 }

@@ -131,3 +131,10 @@ All of this is **unbuilt and untested**.
 `examples/local-host-viewer.cjs` is a manual demonstration that requires
 explicit confirmation and an interactive desktop. It is not an automated test
 or production reference.
+
+`viewer.advertiseDecoding` sends explicit external decoder claims; the addon
+does not provide or probe a network decoder. The local host's `receiveEvent`
+can return these claims, refresh requests and frame-received notifications to
+the caller. They are untrusted, not acted on automatically, and must be
+validated/rate-limited. Calls are serialized, so receiving cannot overlap a
+capture/send on the same host session. A receive timeout closes the session.

@@ -63,6 +63,10 @@ export interface ViewerMessage {
   x?: number; y?: number; hotx?: number; hoty?: number; width?: number; height?: number;
   peer?: ViewerPeerInfo;
 }
+export interface ViewerDecodingOptions {
+  vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; h265: boolean;
+  preference: 'auto' | 'vp8' | 'vp9' | 'av1' | 'h264' | 'h265';
+}
 export class Viewer {
   peerInfo(): ViewerPeerInfo;
   sendMouse(mask: number, x: number, y: number, timeoutMs: number): Promise<void>;
@@ -71,6 +75,7 @@ export class Viewer {
   sendText(text: string, timeoutMs: number): Promise<void>;
   sendMouseWithModifiers(mask: number, x: number, y: number, modifiers: number[], timeoutMs: number): Promise<void>;
   /** These are requests/notifications only; they do not refresh or decode video locally. */
+  advertiseDecoding(options: ViewerDecodingOptions, timeoutMs: number): Promise<void>;
   requestRefreshAll(timeoutMs: number): Promise<void>;
   requestRefreshDisplay(display: number, timeoutMs: number): Promise<void>;
   notifyVideoReceived(timeoutMs: number): Promise<void>;
@@ -93,12 +98,19 @@ export class LocalHost {
   /** Existing sessions must be closed separately. Cannot overlap accept(). */
   close(): void;
 }
+export interface LocalHostEvent {
+  kind: 'input' | 'heartbeat' | 'refreshAll' | 'refreshDisplay' | 'frameReceived' | 'decodingAdvertisement';
+  display?: number; data?: Buffer; vp8?: number; vp9?: number; av1?: number;
+  h264?: number; h265?: number; preference?: number;
+}
 export class LocalHostSession {
   claims(): LocalLoginClaims;
   /** Requires a separate trusted local consent decision; grants view only. */
   approveView(confirmLocalConsent: boolean, timeoutMs: number): Promise<void>;
   /** One independently encoded frame; not continuous video or a codec negotiation. */
   sendOneVp9Frame(displayIndex: number, confirmViewerVp9: boolean, captureTimeoutMs: number, sendTimeoutMs: number): Promise<void>;
+  /** Timeout closes the session; requests are untrusted and are not executed automatically. */
+  receiveEvent(timeoutMs: number): Promise<LocalHostEvent>;
   close(): void;
 }
 /** Explicit loopback host, unbuilt/untested and not a production security boundary. */
