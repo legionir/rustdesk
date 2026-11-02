@@ -9,6 +9,8 @@
 pub mod input_arbiter;
 /// On-demand capture and video delivery for an authorized session.
 pub mod capture_pump;
+/// Experimental, caller-driven host connection; not a secure remote server.
+pub mod host_connection;
 
 use std::{error::Error, fmt};
 use remote_input::{InputBackend, InputController, InputError, MouseButton, VirtualKey};

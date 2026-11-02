@@ -11,6 +11,8 @@ remote-session = { path = "../remote-session" }
 remote-codec = { path = "../remote-codec" }
 remote-protocol = { path = "../remote-protocol" }
 remote-transport = { path = "../remote-transport" }
+remote-security = { path = "../remote-security" }
+zeroize = "1.8"
 
 [features]
 linux-pkg-config = ["remote-capture/linux-pkg-config", "remote-codec/linux-pkg-config"]
@@ -24,7 +26,5 @@ mediacodec = ["remote-capture/mediacodec", "remote-codec/mediacodec"]
 base = { path = "../../../libs/base" }
 hbb_common = { path = "../../../libs/hbb_common" }
 remote-rustdesk-websocket = { path = "../../adapters/rustdesk" }
-remote-security = { path = "../remote-security" }
 getrandom = "0.2"
 tokio = { version = "1.44", features = ["macros", "rt", "time"] }
-zeroize = "1.8"

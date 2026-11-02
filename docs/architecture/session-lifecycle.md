@@ -52,3 +52,17 @@ sends require encoder reset plus peer resync. Dropping the pump does not change
 the session state or close transport; call `stop`, drop the pump to release
 capture, and perform session cleanup explicitly.
 This code is new, untested, and does not authenticate the transport.
+
+`host_connection::HostConnection` now owns one network transport and guarded
+session during a narrow caller-driven password challenge, trusted approval,
+restricted input and software capture workflow. It retains a pre-auth admission
+permit until authorization, checks the grace period at transitions, clears
+pending evidence on close, and never hands out its transport or host session.
+Cancellation leaves its operation phase unusable: the caller must close/drop
+it. Capture handles remain caller-owned and must also be dropped. The receive
+bound is after transport receive, so the transport must independently enforce a
+128 KiB pre-auth frame cap. This partial glue is untested and cannot establish
+cryptographic peer binding, E2E encryption, secure identity, owner consent, 2FA,
+full RustDesk interoperability or cross-session input exclusivity. In
+particular a relay can observe the password challenge transcript. It is not a
+safe internet-facing server.
