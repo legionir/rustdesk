@@ -1,0 +1,9 @@
+[package]
+name = "remote-protocol"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+base = { path = "../../../libs/base" }
+hbb_common = { path = "../../../libs/hbb_common" }

@@ -103,3 +103,36 @@ passed in-process by the test; it is **not** a wire protocol or a complete
 host/viewer session. Existing RustDesk `hbb_common::websocket::WsFramedStream`
 has been inspected, but a WS/WSS adapter has not yet been implemented or
 security-reviewed.
+
+## Session lifecycle prototype
+
+`remote-session` adds a bounded in-memory session registry, lifecycle states,
+explicit authentication and owner-authorization interfaces, per-action
+permission checks, and retryable resource shutdown. It does **not** implement
+an authenticator, credential storage, owner approval UI, secure ID generation,
+transport binding, heartbeat, timers or actual streaming orchestration. The
+session manager remembers used IDs only for its process lifetime and is not a
+replay defense. Dispatchers must enforce `Session::check` at every input and
+screen action and integrate resource shutdown, not assume the state machine
+stops already-running work. This code is new and has not yet been tested.
+
+`remote-core::HostInputSession` is an experimental integration between the
+session authorization guard and the Windows-input abstraction. Every exposed
+input action checks the session capability and the input controller also checks
+its own permissions. Revocation attempts to release held inputs; close attempts
+both input and session cleanup. This is not the final facade or a full remote
+host: trusted authentication/consent providers, transport binding, global
+exclusive input arbitration, capture/streaming orchestration, and validation
+remain required. This integration has not yet been built or tested.
+
+## RustDesk protocol adapter
+
+`remote-protocol` wraps the source `base` protobuf schema, with explicit
+serialized message bounds, mouse inspection/construction, and video packet
+inspection/construction for VP8, VP9, AV1, H.264 and H.265 wire variants.
+Recognition of a wire variant is not a claim that its codec is usable on the
+host. Unrecognized supported RustDesk message kinds remain available for
+round-trip encoding rather than being silently removed, but their semantic
+handlers are not implemented. The adapter does not authenticate messages or
+validate every field; the pre-authorization limit is a caller responsibility.
+This code has not yet been built, tested or security-audited.
