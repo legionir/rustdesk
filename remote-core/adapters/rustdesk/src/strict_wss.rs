@@ -81,7 +81,7 @@ fn validate_limit(max_message_size: usize, deadline: Duration) -> Result<(), Wss
     Ok(())
 }
 
-fn client_config(roots: RootCertStore) -> Result<Arc<ClientConfig>, WssError> {
+pub(crate) fn client_config(roots: RootCertStore) -> Result<Arc<ClientConfig>, WssError> {
     // An explicitly chosen provider avoids relying on Rustls's process-global
     // provider selection when other parts of the application use Rustls too.
     if roots.is_empty() { return Err(WssError::TlsConfiguration); }
@@ -120,7 +120,7 @@ impl StrictWss {
         let config = system_client_config()?;
         Self::connect_with_config(url, max_message_size, deadline, config).await
     }
-    async fn connect_with_config(url: Url, max_message_size: usize, deadline: Duration, config: Arc<ClientConfig>) -> Result<Self, WssError> {
+    pub(crate) async fn connect_with_config(url: Url, max_message_size: usize, deadline: Duration, config: Arc<ClientConfig>) -> Result<Self, WssError> {
         validate_limit(max_message_size, deadline)?;
         let ws_config = WebSocketConfig::default()
             .read_buffer_size(16 * 1024)

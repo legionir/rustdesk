@@ -101,3 +101,47 @@ impl AdjustableNetworkTransport for StrictWssServer {
     }
 }
 impl Drop for StrictWssServer { fn drop(&mut self) { self.close(); } }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{source_crypto::{accept_pinned_host, connect_pinned_host}, strict_wss::{client_config, StrictWss}};
+    use hbb_common::sodiumoxide::{self, crypto::sign};
+    use tokio::{net::TcpListener, time::timeout};
+    use tokio_rustls::rustls::{self, pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer}, RootCertStore};
+    const WAIT: Duration = Duration::from_secs(5);
+    const CA: &[u8] = include_bytes!("../fixtures/test-ca.der");
+    const CERT: &[u8] = include_bytes!("../fixtures/test-server.der");
+    const KEY: &[u8] = include_bytes!("../fixtures/test-server-key.der");
+    fn configs() -> (Arc<ServerConfig>, Arc<rustls::ClientConfig>) {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let server = ServerConfig::builder_with_provider(provider).with_safe_default_protocol_versions().unwrap()
+            .with_no_client_auth().with_single_cert(vec![CertificateDer::from(CERT.to_vec())],
+                PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY.to_vec()))).unwrap();
+        let mut roots = RootCertStore::empty(); roots.add(CertificateDer::from(CA.to_vec())).unwrap();
+        (Arc::new(server), client_config(roots).unwrap())
+    }
+    #[tokio::test]
+    async fn tls_websocket_and_source_encryption_exchange_binary() {
+        sodiumoxide::init().unwrap();
+        let (server_config, client_config) = configs();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (public, secret) = sign::gen_keypair();
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws = StrictWssServer::accept(stream, server_config, 128 * 1024, WAIT, WssServerOptIn::acknowledge_missing_admission_and_origin_policy()).await.unwrap();
+            let mut secured = accept_pinned_host(ws, "test-host", &secret, 128 * 1024 - 16, WAIT).await.unwrap();
+            secured.set_max_message_size(4096).unwrap();
+            assert_eq!(&*secured.receive(WAIT).await.unwrap(), b"hello");
+            secured.send(b"response", WAIT).await.unwrap();
+        });
+        let url = url::Url::parse(&format!("wss://localhost:{port}/")).unwrap();
+        let ws = StrictWss::connect_with_config(url, 128 * 1024, WAIT, client_config).await.unwrap();
+        let mut secured = connect_pinned_host(ws, "test-host", &public, 128 * 1024 - 16, WAIT).await.unwrap();
+        secured.set_max_message_size(4096).unwrap();
+        secured.send(b"hello", WAIT).await.unwrap();
+        assert_eq!(&*secured.receive(WAIT).await.unwrap(), b"response");
+        timeout(WAIT, task).await.unwrap().unwrap();
+    }
+}
