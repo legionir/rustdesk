@@ -30,6 +30,7 @@ test('abandoned pending approval expires and closes the viewer', async () => {
     assert.equal(pending.claims().peerId, 'test');
     await new Promise(resolve => setTimeout(resolve, 3200));
     assert.throws(() => pending.claims());
+    await assert.rejects(pending.approveView(true, 1000));
     await assert.rejects(connecting);
     pending.close();
   } finally {
