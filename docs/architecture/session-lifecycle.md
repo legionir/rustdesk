@@ -23,3 +23,9 @@ As requested, no build or tests were run for this increment. It is neither an
 acceptance-gate result nor a security audit. Before connecting it to real input,
 review the authorization contract, add adversarial lifecycle tests and verify
 resource shutdown and revocation under cancellation.
+
+`HostInputSession` can mark streaming and pass a frame through `VideoSender`
+using the same session and view-screen capability used for input checks. It
+does not start capture itself, own the transport/encoder, or cancel separate
+tasks when permissions are revoked. The integration is experimental and has
+not yet been built or tested.

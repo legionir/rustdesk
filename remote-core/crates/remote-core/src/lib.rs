@@ -93,6 +93,36 @@ impl<B: InputBackend> HostInputSession<B> {
         }
         Ok(())
     }
+    /// Mark an authorized session as streaming once the caller has prepared capture.
+    /// This does not itself create a capture task or start a transport.
+    pub fn start_streaming(&mut self) -> Result<(), HostInputError> {
+        self.session.start_streaming()?;
+        Ok(())
+    }
+    /// Mark streaming stopped. The caller must stop actual capture and delivery tasks.
+    pub fn stop_streaming(&mut self) -> Result<(), HostInputError> {
+        self.session.stop_streaming()?;
+        Ok(())
+    }
+    /// Encode and send one captured frame using this same session's authorization.
+    ///
+    /// The supplied transport and encoder remain caller-owned. A failed or
+    /// cancelled send requires the sender to be reset before another frame.
+    /// The caller must coordinate stream cleanup, codec negotiation and input
+    /// ownership across sessions; this method does not spawn background tasks.
+    pub async fn send_video(
+        &mut self,
+        sender: &mut video::VideoSender,
+        transport: &mut dyn remote_transport::Transport,
+        display: i32,
+        pixels: &[u8],
+        stride: usize,
+        format: remote_codec::PackedFormat,
+        pts_ms: i64,
+        deadline: std::time::Duration,
+    ) -> Result<(), video::VideoError> {
+        sender.send_packed(&self.session, transport, display, pixels, stride, format, pts_ms, deadline).await
+    }
     /// Move the mouse in virtual-desktop coordinates, after authorization.
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<(), HostInputError> {
         self.session.check(Action::ControlMouse)?;
