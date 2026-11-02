@@ -180,12 +180,14 @@ mod tests {
     async fn cancelling_send_releases_reservation_and_does_not_enqueue() {
         let (mut a, mut b) = local_pair(config()).unwrap();
         a.send(b"first", WAIT).await.unwrap();
-        let pending = a.send(b"lost", WAIT);
-        tokio::pin!(pending);
-        tokio::select! { result = &mut pending => panic!("send unexpectedly completed: {result:?}"), _ = tokio::time::sleep(Duration::from_millis(10)) => {} }
-        drop(pending);
+        {
+            let mut pending = a.send(b"lost", WAIT);
+            tokio::select! { result = &mut pending => panic!("send unexpectedly completed: {result:?}"), _ = tokio::time::sleep(Duration::from_millis(10)) => {} }
+        }
         assert_eq!(&*b.receive(WAIT).await.unwrap(), b"first");
         assert_eq!(b.receive(Duration::from_millis(10)).await, Err(TransportError::Timeout));
+        a.send(b"next", WAIT).await.unwrap();
+        assert_eq!(&*b.receive(WAIT).await.unwrap(), b"next");
     }
 
     #[tokio::test]
