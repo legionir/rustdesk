@@ -59,3 +59,13 @@ address *before* calling it. Separate password verification and owner approval
 are still mandatory. The cap includes 16 bytes for secretbox overhead and is
 not a whole-process memory limit. This integration remains unbuilt, untested,
 and subject to security-policy review.
+
+The Node prototype also has a view-only listener restricted to loopback. It
+uses a one-listener/one-session cooperative limit, a temporary signing key,
+pre-auth framing/admission, password verification and a separate explicit
+approval call. It denies OS input. A timer attempts to close abandoned pending
+sessions at the accept deadline; the decision API checks expiry independently.
+Local process identity, secure key provisioning, OS-wide exclusivity, UI
+consent, cancellation under all races and decoder/desktop safety are not
+established. The implementation and deferred loopback cases are unbuilt,
+untested and unaudited; never treat loopback as an authentication boundary.
