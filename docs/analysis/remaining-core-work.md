@@ -166,3 +166,15 @@ permission was revoked, so capture resources can be marked stopped and dropped
 without a second streaming-state transition. This is not an asynchronous
 cancellation mechanism: a capture handle and any blocked native call remain
 the owner's responsibility, and software handles are released on drop.
+
+### Windows touch-scale gap
+
+The source `PointerDeviceEvent` carries `TouchEvent` scale and pan variants.
+`src/server/input_service.rs::handle_pointer_` processes only scale on Windows:
+`handle_scale` holds Control and scrolls the raw scale until a zero scale
+releases Control. Windows routes pointer events through
+`src/server/portable_service.rs::handle_pointer`. The prototype does not yet
+route these messages or implement this held-key lifecycle. A future extraction
+must reconcile disconnect/revocation cleanup, other modifiers and controllers,
+portable-service routing, pan behavior and authorization before enabling it;
+the trackpad wheel mapping above is a different source message.
