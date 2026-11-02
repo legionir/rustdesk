@@ -251,6 +251,24 @@ impl LocalHostSession {
         let busy = SessionBusy::acquire(&self.state)?;
         Ok(AsyncTask::new(SendFrameTask { state: self.state.clone(), _busy: busy, display_index, capture_wait: Duration::from_millis(capture_timeout_ms.into()), send_wait }))
     }
+    /// Sample the current Windows cursor after consent and send shape/position.
+    /// Returns false if hidden/unavailable. Non-Windows platforms reject this
+    /// method. Does not support secure desktop or portable-service capture.
+    #[napi]
+    pub fn sample_windows_cursor(&self, timeout_ms: u32) -> Result<AsyncTask<SampleCursorTask>> {
+        let deadline = wait(timeout_ms)?;
+        let busy = SessionBusy::acquire(&self.state)?;
+        Ok(AsyncTask::new(SampleCursorTask { state: self.state.clone(), _busy: busy, deadline }))
+    }
+    /// Resend a retained cursor shape, or return false for a cache miss.
+    #[napi]
+    pub fn resend_cursor_shape(&self, id: String, timeout_ms: u32) -> Result<AsyncTask<ResendCursorTask>> {
+        let value = id.parse::<u64>().map_err(|_| Error::from_reason("cursor ID must be a decimal u64 string"))?;
+        if value.to_string() != id { return Err(Error::from_reason("cursor ID must be canonical decimal")); }
+        let deadline = wait(timeout_ms)?;
+        let busy = SessionBusy::acquire(&self.state)?;
+        Ok(AsyncTask::new(ResendCursorTask { state: self.state.clone(), _busy: busy, id: value, deadline }))
+    }
     /// Receive one source control/heartbeat message. This serial API cannot
     /// receive concurrently with frame sends. Timeouts close the connection.
     /// Peer requests are untrusted and are not acted on automatically.
@@ -384,4 +402,33 @@ impl Task for HostEventTask {
         }
         Ok(output)
     }
+}
+
+/// Windows-only on-demand shape sampling. OS behavior remains unverified.
+pub struct SampleCursorTask { state: Arc<SessionState>, _busy: SessionBusy, deadline: Duration }
+impl Task for SampleCursorTask {
+    type Output = bool;
+    type JsValue = bool;
+    fn compute(&mut self) -> Result<bool> {
+        #[cfg(target_os = "windows")]
+        {
+            let mut lock = self.state.data.lock().map_err(|_| Error::from_reason("host session state poisoned"))?;
+            let session = lock.as_mut().ok_or_else(|| Error::from_reason("host session closed"))?;
+            runtime()?.block_on(session.host.send_windows_cursor(self.deadline)).map_err(js_error)
+        }
+        #[cfg(not(target_os = "windows"))]
+        { Err(Error::from_reason("Windows cursor sampling is unavailable on this platform")) }
+    }
+    fn resolve(&mut self, _: Env, value: bool) -> Result<bool> { Ok(value) }
+}
+pub struct ResendCursorTask { state: Arc<SessionState>, _busy: SessionBusy, id: u64, deadline: Duration }
+impl Task for ResendCursorTask {
+    type Output = bool;
+    type JsValue = bool;
+    fn compute(&mut self) -> Result<bool> {
+        let mut lock = self.state.data.lock().map_err(|_| Error::from_reason("host session state poisoned"))?;
+        let session = lock.as_mut().ok_or_else(|| Error::from_reason("host session closed"))?;
+        runtime()?.block_on(session.host.send_cached_cursor(self.id, self.deadline)).map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, value: bool) -> Result<bool> { Ok(value) }
 }

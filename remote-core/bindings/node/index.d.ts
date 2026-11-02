@@ -76,6 +76,7 @@ export class Viewer {
   sendMouseWithModifiers(mask: number, x: number, y: number, modifiers: number[], timeoutMs: number): Promise<void>;
   /** These are requests/notifications only; they do not refresh or decode video locally. */
   advertiseDecoding(options: ViewerDecodingOptions, timeoutMs: number): Promise<void>;
+  requestCursorShape(id: string, timeoutMs: number): Promise<void>;
   requestRefreshAll(timeoutMs: number): Promise<void>;
   requestRefreshDisplay(display: number, timeoutMs: number): Promise<void>;
   notifyVideoReceived(timeoutMs: number): Promise<void>;
@@ -115,6 +116,8 @@ export class LocalHostSession {
   sendOneVp9Frame(displayIndex: number, confirmViewerVp9: boolean, captureTimeoutMs: number, sendTimeoutMs: number): Promise<void>;
   /** Timeout closes the session; requests are untrusted and are not executed automatically. */
   receiveEvent(timeoutMs: number): Promise<LocalHostEvent>;
+  sampleWindowsCursor(timeoutMs: number): Promise<boolean>;
+  resendCursorShape(id: string, timeoutMs: number): Promise<boolean>;
   close(): void;
 }
 /** Explicit loopback host, unbuilt/untested and not a production security boundary. */

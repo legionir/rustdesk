@@ -27,6 +27,9 @@ impl NativeViewer {
     async fn send_decoding_advertisement(&mut self, event: remote_protocol::DecodingAdvertisement, wait: Duration) -> std::result::Result<(), ViewerError> {
         match self { Self::Tcp(v) => v.send_decoding_advertisement(event, wait).await, Self::Wss(v) => v.send_decoding_advertisement(event, wait).await }
     }
+    async fn request_cursor_shape(&mut self, id: u64, wait: Duration) -> std::result::Result<(), ViewerError> {
+        match self { Self::Tcp(v) => v.request_cursor_shape(id, wait).await, Self::Wss(v) => v.request_cursor_shape(id, wait).await }
+    }
     async fn receive(&mut self, wait: Duration) -> std::result::Result<ViewerEvent, ViewerError> {
         match self { Self::Tcp(v) => v.receive(wait).await, Self::Wss(v) => v.receive(wait).await }
     }
@@ -201,6 +204,15 @@ impl Viewer {
         let lease = BusyLease::acquire(&self.state)?;
         Ok(AsyncTask::new(AdvertiseDecodingTask { state: self.state.clone(), _busy: lease, capabilities, deadline }))
     }
+    /// Ask the host for a previously sent cursor shape; it may have been evicted.
+    #[napi]
+    pub fn request_cursor_shape(&self, id: String, timeout_ms: u32) -> Result<AsyncTask<RequestCursorTask>> {
+        let value = id.parse::<u64>().map_err(|_| Error::from_reason("cursor ID must be a decimal u64 string"))?;
+        if value.to_string() != id { return Err(Error::from_reason("cursor ID must be canonical decimal")); }
+        let deadline = wait(timeout_ms)?;
+        let lease = BusyLease::acquire(&self.state)?;
+        Ok(AsyncTask::new(RequestCursorTask { state: self.state.clone(), _busy: lease, id: value, deadline }))
+    }
     /// Receive one message on a worker. Receive timeout closes the connection.
     #[napi]
     pub fn receive(&self, timeout_ms: u32) -> Result<AsyncTask<ReceiveTask>> {
@@ -253,6 +265,18 @@ impl Task for AdvertiseDecodingTask {
         let mut lock = self.state.viewer.lock().map_err(|_| Error::from_reason("viewer state poisoned"))?;
         let viewer = lock.as_mut().ok_or_else(|| Error::from_reason("viewer is closed"))?;
         runtime()?.block_on(viewer.send_decoding_advertisement(self.capabilities, self.deadline)).map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
+}
+
+pub struct RequestCursorTask { state: Arc<ViewerState>, _busy: BusyLease, id: u64, deadline: Duration }
+impl Task for RequestCursorTask {
+    type Output = ();
+    type JsValue = ();
+    fn compute(&mut self) -> Result<()> {
+        let mut lock = self.state.viewer.lock().map_err(|_| Error::from_reason("viewer state poisoned"))?;
+        let viewer = lock.as_mut().ok_or_else(|| Error::from_reason("viewer is closed"))?;
+        runtime()?.block_on(viewer.request_cursor_shape(self.id, self.deadline)).map_err(js_error)
     }
     fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
 }

@@ -147,3 +147,11 @@ root stores are not supported. This does not provide a WSS server, configure or
 authenticate a relay route, or verify Cloudflare compatibility. TLS validates
 the WSS endpoint; the separately pinned exchange is intended to identify the
 host behind it. This code and its validation cases have not been built or run.
+
+A Windows host may explicitly call `sampleWindowsCursor` after view approval,
+and the viewer may request a previously sent shape with `requestCursorShape`.
+Host requests are surfaced as events; the application may explicitly call
+`resendCursorShape` and must rate-limit requests. Shape caching is bounded but
+content IDs can collide, cache entries can be evicted, and hidden cursor,
+UAC/secure desktop, animation and portable-service behavior remain incomplete.
+These methods and native Win32 sampling are unbuilt and untested.
