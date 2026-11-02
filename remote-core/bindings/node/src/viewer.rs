@@ -218,6 +218,16 @@ impl Viewer {
         let event = Envelope::capture_displays_event(&value).map_err(js_error)?;
         self.display_control_task(event, timeout_ms)
     }
+    /// Ask the peer to change its OS resolution. This can affect the local
+    /// user on that machine and requires explicit informed consent; the peer
+    /// must independently authorize, validate and decide whether to apply it.
+    #[napi]
+    pub fn request_display_resolution(&self, display: u32, width: i32, height: i32,
+        confirm_remote_resolution_change: bool, timeout_ms: u32) -> Result<AsyncTask<DisplayControlTask>> {
+        if !confirm_remote_resolution_change { return Err(Error::from_reason("explicit remote resolution change confirmation required")); }
+        let value = remote_protocol::display_control::DisplayResolution { display, width, height };
+        self.display_control_task(Envelope::display_resolution_event(value).map_err(js_error)?, timeout_ms)
+    }
     /// Request source display metadata. This does not switch a display.
     #[napi]
     pub fn query_display(&self, display: u32, timeout_ms: u32) -> Result<AsyncTask<DisplayControlTask>> {

@@ -135,6 +135,7 @@ adapters. A resolution request is delivered as an event only with local view
 and change-display grants; it never changes the OS automatically. Metadata
 queries need view permission and the caller must validate/rate-limit them.
 Follow-current-display is an unauthenticated claim at the protocol layer, not a
-permission or evidence of cursor location. The Node viewer sends queries but
-has no resolution-change method; the Node loopback host remains view-only and
+permission or evidence of cursor location. The Node viewer sends queries and exposes a resolution-change request only with
+explicit confirmation; the peer might actually change its OS resolution. The
+Node loopback host remains view-only and
 does not automatically reply to queries. All of this remains unverified.

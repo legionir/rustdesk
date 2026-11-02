@@ -84,6 +84,8 @@ export class Viewer {
   /** Does not change resolution. Host may deny or ignore it. */
   requestDisplay(display: number, timeoutMs: number): Promise<void>;
   queryDisplay(display: number, timeoutMs: number): Promise<void>;
+  /** Peer may change its real OS display mode; explicit informed consent is required. */
+  requestDisplayResolution(display: number, width: number, height: number, confirmRemoteResolutionChange: boolean, timeoutMs: number): Promise<void>;
   /** Empty lists can unsubscribe all displays; host may deny this request. */
   requestCaptureDisplays(add: number[], sub: number[], set: number[], timeoutMs: number): Promise<void>;
   requestRefreshAll(timeoutMs: number): Promise<void>;
