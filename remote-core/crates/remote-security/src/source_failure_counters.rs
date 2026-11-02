@@ -91,6 +91,10 @@ impl SourceFailureCounters {
         if !self.entries.get(&Key::Address(ip)).map_or(false, |entry| entry.minute != 0) { return; }
         for key in keys(ip) { self.entries.remove(&key); }
     }
+    /// Explicit administrative reset of every bucket. This weakens lockout and
+    /// must be restricted/audited by the embedding application; it is never
+    /// called automatically on capacity exhaustion or a peer request.
+    pub fn clear_all_by_operator(&mut self) { self.entries.clear(); }
     pub fn bucket_count(&self) -> usize { self.entries.len() }
 }
 #[cfg(test)]
@@ -113,6 +117,8 @@ mod tests {
         assert_eq!(c.record_failure(b, 20), Err(CounterError::Capacity));
         assert_eq!(c.record_failure(a, 19), Err(CounterError::ClockRegression));
         assert_eq!(c.bucket_count(), 4);
+        c.clear_all_by_operator(); assert_eq!(c.bucket_count(), 0);
+        assert!(c.record_failure(b, 20).is_ok());
     }
     #[test]
     fn source_success_can_clear_shared_prefixes_without_clearing_other_addresses() {
