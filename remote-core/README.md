@@ -136,3 +136,12 @@ round-trip encoding rather than being silently removed, but their semantic
 handlers are not implemented. The adapter does not authenticate messages or
 validate every field; the pre-authorization limit is a caller responsibility.
 This code has not yet been built, tested or security-audited.
+
+`remote-core::video` adds an experimental capture-buffer → software encoder →
+RustDesk protobuf → generic transport sender and a matching receiver. The
+sender checks an externally owned streaming session and view permission, and
+requires an encoder reset after failure or cancellation. This is not yet a
+complete host or viewer; codec negotiation, renderer, authenticated transport,
+reconnection, bounded native decoder allocations and live task cancellation
+are not implemented. The receiver must not be exposed to untrusted peers. This
+pipeline has not been built or tested.

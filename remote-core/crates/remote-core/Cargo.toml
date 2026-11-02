@@ -7,3 +7,6 @@ publish = false
 [dependencies]
 remote-input = { path = "../remote-input" }
 remote-session = { path = "../remote-session" }
+remote-codec = { path = "../remote-codec" }
+remote-protocol = { path = "../remote-protocol" }
+remote-transport = { path = "../remote-transport" }
