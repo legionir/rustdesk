@@ -129,3 +129,12 @@ retaining the original envelope does not make peer data trustworthy.
 Windows trackpad wheel events use the source's unscaled `(-x, y)` units;
 ordinary wheel events use `(-x * 120, y * 120)`. Overflow is rejected instead
 of using overflowing arithmetic. This backend path is not validated on Windows.
+
+Display-mode changes and cursor-follow hints now have bounded source-schema
+adapters. A resolution request is delivered as an event only with local view
+and change-display grants; it never changes the OS automatically. Metadata
+queries need view permission and the caller must validate/rate-limit them.
+Follow-current-display is an unauthenticated claim at the protocol layer, not a
+permission or evidence of cursor location. The Node viewer sends queries but
+has no resolution-change method; the Node loopback host remains view-only and
+does not automatically reply to queries. All of this remains unverified.
