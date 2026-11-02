@@ -11,6 +11,9 @@ pub mod input_arbiter;
 pub mod capture_pump;
 /// Experimental, caller-driven host connection; not a secure remote server.
 pub mod host_connection;
+/// Optional source-key-exchange admission composition.
+#[cfg(feature = "source-security")]
+pub mod admitted_host;
 /// Experimental caller-driven viewer transport and protocol demultiplexing.
 pub mod viewer_connection;
 /// Opt-in local tracked-modifier input subset.

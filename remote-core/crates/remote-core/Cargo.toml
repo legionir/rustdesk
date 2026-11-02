@@ -13,8 +13,11 @@ remote-protocol = { path = "../remote-protocol" }
 remote-transport = { path = "../remote-transport" }
 remote-security = { path = "../remote-security" }
 zeroize = "1.8"
+remote-rustdesk-websocket = { path = "../../adapters/rustdesk", optional = true }
+hbb_common = { path = "../../../libs/hbb_common", optional = true }
 
 [features]
+source-security = ["dep:remote-rustdesk-websocket", "dep:hbb_common"]
 linux-pkg-config = ["remote-capture/linux-pkg-config", "remote-codec/linux-pkg-config"]
 wayland = ["remote-capture/wayland", "remote-codec/wayland"]
 drm = ["wayland", "remote-capture/drm", "remote-codec/drm"]

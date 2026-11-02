@@ -50,3 +50,12 @@ key provisioning/rotation/revocation, WebRTC fingerprint binding, 2FA, complete
 RustDesk compatibility or an audited replay/DoS defense. These policy choices
 are provisional and require human security review. They do not make this
 prototype production-ready or safe for untrusted traffic. No tests were run.
+
+Behind the opt-in `remote-core/source-security` feature, `admitted_host::accept`
+composes a caller-acquired admission permit with a framing-level pre-auth cap
+and the pinned source-v1 host handshake, before creating the still-unauthorized
+host session. The caller must acquire the permit using a trusted observed socket
+address *before* calling it. Separate password verification and owner approval
+are still mandatory. The cap includes 16 bytes for secretbox overhead and is
+not a whole-process memory limit. This integration remains unbuilt, untested,
+and subject to security-policy review.
