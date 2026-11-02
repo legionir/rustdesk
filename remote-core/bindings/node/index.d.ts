@@ -58,10 +58,10 @@ export interface ViewerPeerInfo {
   currentDisplay: number; displays: ViewerDisplayInfo[];
 }
 export interface ViewerMessage {
-  kind: 'video' | 'cursorShape' | 'cursorId' | 'cursorPosition' | 'testDelay' | 'peerInfo' | 'other';
+  kind: 'video' | 'cursorShape' | 'cursorId' | 'cursorPosition' | 'testDelay' | 'peerInfo' | 'permission' | 'other';
   data?: Buffer; display?: number; codec?: string; cursorId?: string;
   x?: number; y?: number; hotx?: number; hoty?: number; width?: number; height?: number;
-  peer?: ViewerPeerInfo;
+  peer?: ViewerPeerInfo; permission?: number; enabled?: boolean;
 }
 export interface ViewerDecodingOptions {
   vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; h265: boolean;

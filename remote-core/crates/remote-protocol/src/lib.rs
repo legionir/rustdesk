@@ -11,6 +11,8 @@ pub mod cursor;
 /// Existing desktop login response and display metadata.
 pub mod desktop;
 pub mod video_control;
+/// Source permission notification fields.
+pub mod permissions;
 /// Existing input wire constructors.
 pub mod input;
 

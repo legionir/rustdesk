@@ -253,6 +253,22 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.phase = Phase::Authorized;
         Ok(())
     }
+    /// Send RustDesk's combined keyboard/mouse permission announcement after
+    /// local policy has already been applied. An enabled announcement is
+    /// refused unless both local mouse and keyboard permissions are granted;
+    /// source has no separate wire bit for this prototype's split permissions.
+    /// Sending false does not itself revoke OS input; call restrict_permissions.
+    pub async fn send_source_keyboard_permission(&mut self, enabled: bool, deadline: Duration) -> Result<(), ConnectionError> {
+        let permissions = self.host.permissions();
+        if self.phase != Phase::Authorized || deadline.is_zero() || (enabled && !(permissions.control_mouse && permissions.control_keyboard)) {
+            return Err(ConnectionError::InvalidState);
+        }
+        let wire = Envelope::source_keyboard_permission(enabled).encode(self.max_post_auth_bytes)?;
+        self.phase = Phase::Busy;
+        if let Err(error) = self.transport.send(&wire, deadline).await { self.abort(); return Err(ConnectionError::Network(error)); }
+        self.phase = Phase::Authorized;
+        Ok(())
+    }
     /// Open and start a software capture pump for this authorized session.
     /// Only one live pump should be used per session; the caller must coordinate
     /// stopping/dropping it, desktop access, negotiation and stream refresh.

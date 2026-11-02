@@ -70,6 +70,8 @@ pub enum ViewerEvent {
     /// A source heartbeat; from-server probes are echoed before returning.
     TestDelay(TestDelay),
     PeerInfo(PeerInfo),
+    /// Untrusted source permission announcement; not a local authorization grant.
+    Permission(remote_protocol::permissions::PermissionNotice),
     /// Unknown/non-adapted message. The caller may decode it separately.
     Other(Box<[u8]>),
 }
@@ -205,6 +207,11 @@ impl<T: NetworkTransport> ViewerConnection<T> {
                 let delay = envelope.test_delay()?;
                 if !delay.from_client { self.transport.send(&raw, deadline).await?; }
                 Ok(ViewerEvent::TestDelay(delay))
+            },
+            MessageKind::Misc => match envelope.permission_notice() {
+                Ok(notice) => Ok(ViewerEvent::Permission(notice)),
+                Err(ProtocolError::UnexpectedMessage) => Ok(ViewerEvent::Other(raw)),
+                Err(error) => Err(ViewerError::Protocol(error)),
             },
             MessageKind::Other => match envelope.desktop_peer_info() {
                 Ok(info) => Ok(ViewerEvent::PeerInfo(info)),

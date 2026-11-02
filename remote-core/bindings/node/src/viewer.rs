@@ -395,6 +395,7 @@ pub struct ViewerMessage {
     pub hotx: Option<i32>, pub hoty: Option<i32>,
     pub width: Option<i32>, pub height: Option<i32>,
     pub peer: Option<ViewerPeerInfo>,
+    pub permission: Option<i32>, pub enabled: Option<bool>,
 }
 pub struct ReceiveTask { state: Arc<ViewerState>, _busy: BusyLease, deadline: Duration }
 impl Task for ReceiveTask {
@@ -407,7 +408,7 @@ impl Task for ReceiveTask {
     }
     fn resolve(&mut self, _: Env, event: ViewerEvent) -> Result<ViewerMessage> {
         let mut msg = ViewerMessage { kind: String::new(), data: None, display: None, codec: None, cursor_id: None,
-            x: None, y: None, hotx: None, hoty: None, width: None, height: None, peer: None };
+            x: None, y: None, hotx: None, hoty: None, width: None, height: None, peer: None, permission: None, enabled: None };
         match event {
             ViewerEvent::Video { display, codec, envelope } => {
                 msg.kind = "video".into(); msg.data = Some(envelope.into_vec().into()); msg.display = Some(display);
@@ -421,6 +422,7 @@ impl Task for ReceiveTask {
             ViewerEvent::CursorPosition(pos) => { msg.kind = "cursorPosition".into(); msg.x = Some(pos.x); msg.y = Some(pos.y); },
             ViewerEvent::TestDelay(_) => { msg.kind = "testDelay".into(); },
             ViewerEvent::PeerInfo(info) => { msg.kind = "peerInfo".into(); msg.peer = Some(to_js_peer(&info)); },
+            ViewerEvent::Permission(notice) => { msg.kind = "permission".into(); msg.permission = Some(notice.permission); msg.enabled = Some(notice.enabled); },
             ViewerEvent::Other(raw) => { msg.kind = "other".into(); msg.data = Some(raw.into_vec().into()); },
         }
         Ok(msg)
