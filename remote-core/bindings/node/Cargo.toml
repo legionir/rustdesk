@@ -18,6 +18,7 @@ remote-input = { path = "../../crates/remote-input" }
 remote-security = { path = "../../crates/remote-security" }
 remote-session = { path = "../../crates/remote-session" }
 getrandom = "0.2"
+url = "2.5"
 remote-rustdesk-websocket = { path = "../../adapters/rustdesk" }
 hbb_common = { path = "../../../libs/hbb_common" }
 tokio = { version = "1.44", features = ["rt-multi-thread", "net", "time"] }

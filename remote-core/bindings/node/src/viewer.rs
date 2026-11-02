@@ -7,13 +7,31 @@ use crate::js_error;
 use hbb_common::sodiumoxide::{self, crypto::sign};
 use napi::{bindgen_prelude::{AsyncTask, Buffer}, Env, Error, Result, Task};
 use napi_derive::napi;
-use remote_core::viewer_connection::{LoginIdentity, ViewerConnection, ViewerEvent};
+use remote_core::viewer_connection::{LoginIdentity, ViewerConnection, ViewerError, ViewerEvent};
 use remote_protocol::{desktop::PeerInfo, Envelope, MouseEvent};
-use remote_rustdesk_websocket::{direct_tcp::{DirectTcp, DirectTcpOptIn}, source_crypto::{connect_pinned_host, EncryptedTransport}};
+use remote_rustdesk_websocket::{direct_tcp::{DirectTcp, DirectTcpOptIn}, source_crypto::{connect_pinned_host, EncryptedTransport}, strict_wss::StrictWss};
 use std::{net::SocketAddr, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Arc, Mutex, OnceLock}, time::{Duration, Instant}};
 use zeroize::Zeroizing;
 
-type NativeViewer = ViewerConnection<EncryptedTransport<DirectTcp>>;
+pub enum NativeViewer {
+    Tcp(ViewerConnection<EncryptedTransport<DirectTcp>>),
+    Wss(ViewerConnection<EncryptedTransport<StrictWss>>),
+}
+impl NativeViewer {
+    async fn send_input(&mut self, event: &Envelope, wait: Duration) -> std::result::Result<(), ViewerError> {
+        match self { Self::Tcp(v) => v.send_input(event, wait).await, Self::Wss(v) => v.send_input(event, wait).await }
+    }
+    async fn send_video_control(&mut self, event: remote_protocol::video_control::VideoControl, wait: Duration) -> std::result::Result<(), ViewerError> {
+        match self { Self::Tcp(v) => v.send_video_control(event, wait).await, Self::Wss(v) => v.send_video_control(event, wait).await }
+    }
+    async fn send_decoding_advertisement(&mut self, event: remote_protocol::DecodingAdvertisement, wait: Duration) -> std::result::Result<(), ViewerError> {
+        match self { Self::Tcp(v) => v.send_decoding_advertisement(event, wait).await, Self::Wss(v) => v.send_decoding_advertisement(event, wait).await }
+    }
+    async fn receive(&mut self, wait: Duration) -> std::result::Result<ViewerEvent, ViewerError> {
+        match self { Self::Tcp(v) => v.receive(wait).await, Self::Wss(v) => v.receive(wait).await }
+    }
+    fn close(&mut self) { match self { Self::Tcp(v) => v.close(), Self::Wss(v) => v.close() } }
+}
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static VIEWERS: AtomicUsize = AtomicUsize::new(0);
 const MAX_VIEWERS: usize = 8;
@@ -256,7 +274,7 @@ impl Task for ConnectTask {
             let mut viewer = ViewerConnection::new(secured, PRE_AUTH_FRAME - 16).map_err(js_error)?;
             let info = viewer.login(&self.identity, &self.password, remaining(end)?).await.map_err(js_error)?;
             viewer.set_connected_message_limit(self.max_message).map_err(js_error)?;
-            Ok((viewer, info))
+            Ok((NativeViewer::Tcp(viewer), info))
         })
     }
     fn resolve(&mut self, _: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -281,6 +299,64 @@ pub fn connect_viewer(mut options: ViewerOptions) -> Result<AsyncTask<ConnectTas
     let identity = LoginIdentity { target: options.expected_host_id.clone(), viewer_id: options.viewer_id,
         viewer_name: options.viewer_name, wire_session_id, version: options.version };
     Ok(AsyncTask::new(ConnectTask { _lease: Some(lease), address, host_id: options.expected_host_id, host_key,
+        identity, password: Zeroizing::new(std::mem::take(&mut options.password)), deadline, max_message: options.max_message_bytes as usize }))
+}
+
+/// WSS endpoint and independently pinned desktop host identity. The WSS
+/// server can observe traffic metadata and is not itself the desktop identity.
+/// Only trusted applications should choose endpoint URLs; SSRF is not prevented.
+#[napi(object)]
+pub struct WssViewerOptions {
+    pub endpoint: String, pub expected_host_id: String, pub host_signing_key: Buffer,
+    pub viewer_id: String, pub viewer_name: String, pub wire_session_id: String, pub version: String,
+    pub password: String, pub timeout_ms: u32, pub max_message_bytes: u32,
+}
+pub struct WssConnectTask {
+    lease: Option<ViewerLease>, endpoint: String, host_id: String, host_key: [u8; 32],
+    identity: LoginIdentity, password: Zeroizing<String>, deadline: Duration, max_message: usize,
+}
+impl Task for WssConnectTask {
+    type Output = (NativeViewer, PeerInfo);
+    type JsValue = Viewer;
+    fn compute(&mut self) -> Result<Self::Output> {
+        sodiumoxide::init().map_err(|_| Error::from_reason("crypto initialization failed"))?;
+        let pin = sign::PublicKey::from_slice(&self.host_key).ok_or_else(|| Error::from_reason("invalid host signing key"))?;
+        let end = Instant::now().checked_add(self.deadline).ok_or_else(|| Error::from_reason("invalid deadline"))?;
+        runtime()?.block_on(async {
+            let socket = StrictWss::connect(&self.endpoint, PRE_AUTH_FRAME, remaining(end)?).await.map_err(js_error)?;
+            let secured = connect_pinned_host(socket, &self.host_id, &pin, PRE_AUTH_FRAME - 16, remaining(end)?).await.map_err(js_error)?;
+            let mut viewer = ViewerConnection::new(secured, PRE_AUTH_FRAME - 16).map_err(js_error)?;
+            let info = viewer.login(&self.identity, &self.password, remaining(end)?).await.map_err(js_error)?;
+            viewer.set_connected_message_limit(self.max_message).map_err(js_error)?;
+            Ok((NativeViewer::Wss(viewer), info))
+        })
+    }
+    fn resolve(&mut self, _: Env, output: Self::Output) -> Result<Viewer> {
+        let lease = self.lease.take().ok_or_else(|| Error::from_reason("viewer lease unavailable"))?;
+        Ok(Viewer { state: Arc::new(ViewerState { viewer: Mutex::new(Some(output.0)), busy: AtomicBool::new(false), _lease: lease, info: output.1 }) })
+    }
+}
+/// Strict TLS WSS with a separate pinned RustDesk host exchange. Does not
+/// configure a relay, authenticate a relay route, prevent SSRF, or prove that a
+/// Cloudflare deployment is compatible. This interface is unbuilt and untested.
+#[napi]
+pub fn connect_wss_viewer(mut options: WssViewerOptions) -> Result<AsyncTask<WssConnectTask>> {
+    let deadline = wait(options.timeout_ms)?;
+    let endpoint = url::Url::parse(&options.endpoint).map_err(|_| Error::from_reason("invalid WSS endpoint"))?;
+    if endpoint.scheme() != "wss" || endpoint.host().is_none() || !endpoint.username().is_empty()
+        || endpoint.password().is_some() || endpoint.query().is_some() || endpoint.fragment().is_some() || endpoint.port() == Some(0) {
+        return Err(Error::from_reason("WSS endpoint must not contain credentials, query or fragment"));
+    }
+    if options.host_signing_key.len() != 32 { return Err(Error::from_reason("hostSigningKey must be 32 bytes")); }
+    if options.max_message_bytes == 0 || options.max_message_bytes as usize > MAX_FRAME { return Err(Error::from_reason("invalid maxMessageBytes")); }
+    let wire_session_id = options.wire_session_id.parse::<u64>().map_err(|_| Error::from_reason("wireSessionId must be a decimal u64 string"))?;
+    if wire_session_id.to_string() != options.wire_session_id { return Err(Error::from_reason("wireSessionId must be canonical decimal")); }
+    if options.password.is_empty() || options.password.len() > 1024 { return Err(Error::from_reason("invalid password length")); }
+    let lease = ViewerLease::acquire()?;
+    let mut host_key = [0u8; 32]; host_key.copy_from_slice(&options.host_signing_key);
+    let identity = LoginIdentity { target: options.expected_host_id.clone(), viewer_id: options.viewer_id,
+        viewer_name: options.viewer_name, wire_session_id, version: options.version };
+    Ok(AsyncTask::new(WssConnectTask { lease: Some(lease), endpoint: options.endpoint, host_id: options.expected_host_id, host_key,
         identity, password: Zeroizing::new(std::mem::take(&mut options.password)), deadline, max_message: options.max_message_bytes as usize }))
 }
 
