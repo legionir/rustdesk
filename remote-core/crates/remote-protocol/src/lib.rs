@@ -32,6 +32,8 @@ pub enum ProtocolError {
     UnexpectedMessage,
     /// The encoded video frame contains too many packets.
     TooManyVideoPackets,
+    /// An authentication field has an unsupported size or value.
+    InvalidAuthenticationField,
 }
 impl fmt::Display for ProtocolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -42,6 +44,7 @@ impl fmt::Display for ProtocolError {
             Self::MissingMessage => f.write_str("message has no recognized payload"),
             Self::UnexpectedMessage => f.write_str("unexpected message kind"),
             Self::TooManyVideoPackets => f.write_str("too many encoded video packets"),
+            Self::InvalidAuthenticationField => f.write_str("invalid authentication field"),
         }
     }
 }
@@ -111,6 +114,52 @@ impl Envelope {
             Some(message::Union::MouseEvent(event)) => Ok(MouseEvent { mask: event.mask, x: event.x, y: event.y }),
             _ => Err(ProtocolError::UnexpectedMessage),
         }
+    }
+    /// Inspect the existing RustDesk password challenge fields.
+    pub fn password_challenge(&self) -> Result<PasswordChallenge<'_>, ProtocolError> {
+        match self.inner.union.as_ref() {
+            Some(message::Union::Hash(hash)) => Ok(PasswordChallenge { salt: &hash.salt, challenge: &hash.challenge }),
+            _ => Err(ProtocolError::UnexpectedMessage),
+        }
+    }
+    /// Construct a RustDesk password challenge envelope.
+    /// The supplied fields are not generated or validated as cryptographic nonces here.
+    pub fn password_challenge_event(salt: &str, challenge: &str) -> Result<Self, ProtocolError> {
+        if salt.is_empty() || salt.len() > 256 || challenge.is_empty() || challenge.len() > 256 {
+            return Err(ProtocolError::InvalidAuthenticationField);
+        }
+        let hash = message_proto::Hash { salt: salt.to_owned(), challenge: challenge.to_owned(), ..Default::default() };
+        let mut inner = Message::new();
+        inner.set_hash(hash);
+        Ok(Self { inner })
+    }
+    /// Inspect fields of a desktop login request. Requests for other RustDesk
+    /// modes are refused by this view but remain intact in the envelope.
+    pub fn desktop_login(&self) -> Result<DesktopLogin<'_>, ProtocolError> {
+        match self.inner.union.as_ref() {
+            Some(message::Union::LoginRequest(login)) if login.union.is_none() => Ok(DesktopLogin {
+                username: &login.username, peer_id: &login.my_id, peer_name: &login.my_name,
+                password_response: &login.password, session_id: login.session_id, version: &login.version,
+            }),
+            _ => Err(ProtocolError::UnexpectedMessage),
+        }
+    }
+    /// Construct a basic desktop login request. Additional RustDesk options,
+    /// trusted-device tokens, OS login and 2FA are not represented here.
+    /// No identity or authorization is established by constructing this message.
+    pub fn desktop_login_event(login: DesktopLogin<'_>) -> Result<Self, ProtocolError> {
+        if login.username.len() > 256 || login.peer_id.len() > 256 || login.peer_name.len() > 256
+            || login.version.len() > 256 || !(login.password_response.is_empty() || login.password_response.len() == 32) {
+            return Err(ProtocolError::InvalidAuthenticationField);
+        }
+        let request = message_proto::LoginRequest {
+            username: login.username.to_owned(), my_id: login.peer_id.to_owned(), my_name: login.peer_name.to_owned(),
+            password: login.password_response.to_vec().into(), session_id: login.session_id, version: login.version.to_owned(),
+            ..Default::default()
+        };
+        let mut inner = Message::new();
+        inner.set_login_request(request);
+        Ok(Self { inner })
     }
     /// Inspect every modifier in a mouse event as its original protobuf enum value.
     pub fn mouse_modifiers(&self) -> Result<impl Iterator<Item = i32> + '_, ProtocolError> {
@@ -194,6 +243,33 @@ impl Envelope {
 
 fn validate_limit(max_bytes: usize) -> Result<(), ProtocolError> {
     if max_bytes == 0 || max_bytes > MAX_ENVELOPE_BYTES { Err(ProtocolError::InvalidLimit) } else { Ok(()) }
+}
+
+/// Borrowed RustDesk password challenge fields.
+pub struct PasswordChallenge<'a> {
+    /// Public password salt.
+    pub salt: &'a str,
+    /// Public one-time challenge string.
+    pub challenge: &'a str,
+}
+
+/// Borrowed basic desktop login fields.
+///
+/// These are untrusted peer-supplied values until separately authenticated.
+/// `session_id` is RustDesk's wire ID, not the core's `SessionId` type.
+pub struct DesktopLogin<'a> {
+    /// Target login identity.
+    pub username: &'a str,
+    /// Claimed peer ID (not authenticated by itself).
+    pub peer_id: &'a str,
+    /// Claimed peer display name.
+    pub peer_name: &'a str,
+    /// Password challenge response; an empty response may request owner approval.
+    pub password_response: &'a [u8],
+    /// RustDesk wire-level session ID.
+    pub session_id: u64,
+    /// Peer version string.
+    pub version: &'a str,
 }
 
 /// A RustDesk mouse event without its modifier list.

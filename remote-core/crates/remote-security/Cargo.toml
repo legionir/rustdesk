@@ -1,0 +1,12 @@
+[package]
+name = "remote-security"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+remote-session = { path = "../remote-session" }
+sha2 = "0.10"
+subtle = "2.6"
+zeroize = "1.8"
+getrandom = "0.2"

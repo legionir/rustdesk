@@ -25,3 +25,10 @@ The encoded-video constructor preserves packet ordering and keyframe/PTS
 metadata but does not validate sequence, codec compatibility or timestamps.
 The crate currently depends on the RustDesk checkout and has not been built or
 tested.
+
+`password_challenge_event`/`password_challenge` and
+`desktop_login_event`/`desktop_login` expose a basic subset of RustDesk's Hash
+and LoginRequest messages without replacing the schema. Non-desktop request
+modes remain intact but are not handled by the desktop view. The fields are
+untrusted, and the adapter does not enforce 2FA, token validation, owner
+approval, peer identity, or message replay protection.

@@ -152,3 +152,12 @@ is unauthenticated and accepts upstream plaintext text frames; it is not a WSS
 adapter or a secure network transport. WSS remains blocked on isolation of the
 source's global TLS/proxy configuration and a reviewed security design. This
 adapter has not yet been built or tested.
+
+`remote-security` adds an experimental implementation of RustDesk's existing
+password challenge calculation and a single-use expiring verifier; owner
+approval remains a separate embedding-application decision. This legacy scheme
+is vulnerable to offline password guessing from captured transcripts and does
+not authenticate the server or bind to TLS. It must not be exposed to remote
+peers without a separately authenticated encrypted channel, rate limits,
+trusted consent and security review. It has not yet been built or tested and
+does not implement RustDesk 2FA or the complete login flow.
