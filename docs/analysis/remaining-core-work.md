@@ -152,3 +152,11 @@ attempts at caller-specified rates and `VideoStreams` tracks keyframe recovery
 per display. Neither spawns tasks or integrates MultiCapture, decoder creation,
 subscriptions, ACKs or QoS. They do not establish fairness across separate
 connections or enforce global CPU, decoder allocation or bandwidth budgets.
+
+`display_metadata::display_update` builds a bounded standalone `PeerInfo` from
+handles enumerated by the caller, and the authorized host can send the update.
+Unlike `src/server/display_service.rs::displays_to_msg`, this subset omits the
+Windows virtual-display `platform_additions` JSON and original resolution;
+scale is unknown. Handle order and metadata can become stale immediately after
+enumeration. Refresh, secure desktop switching, actual mode changes and stream
+recreation are not automatic.
