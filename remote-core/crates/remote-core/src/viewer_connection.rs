@@ -74,6 +74,8 @@ pub enum ViewerEvent {
     PeerInfo(PeerInfo),
     /// Untrusted source display announcement, including the original envelope.
     DisplayChanged { value: remote_protocol::display_control::DisplaySwitch, envelope: Box<[u8]> },
+    /// Untrusted cursor-follow display hint; it is not authorization.
+    FollowCurrentDisplay(u32),
     /// Untrusted source permission announcement; not a local authorization grant.
     Permission(remote_protocol::permissions::PermissionNotice),
     /// Unknown/non-adapted message. The caller may decode it separately.
@@ -161,7 +163,8 @@ impl<T: NetworkTransport> ViewerConnection<T> {
     /// act. A nonzero requested resolution may change OS settings at a peer.
     pub async fn send_display_control(&mut self, event: &Envelope, deadline: Duration) -> Result<(), ViewerError> {
         if self.phase != Phase::Connected || deadline.is_zero() { return Err(ViewerError::InvalidState); }
-        if event.display_switch().is_err() && event.capture_displays().is_err() { return Err(ViewerError::UnexpectedMessage); }
+        if event.display_switch().is_err() && event.capture_displays().is_err()
+            && event.display_resolution().is_err() && event.display_query().is_err() { return Err(ViewerError::UnexpectedMessage); }
         let wire = event.encode(self.max_bytes)?;
         self.phase = Phase::Busy;
         match self.transport.send(&wire, deadline).await {
@@ -239,10 +242,14 @@ impl<T: NetworkTransport> ViewerConnection<T> {
             MessageKind::Misc => match envelope.display_switch() {
                 Ok(value) => Ok(ViewerEvent::DisplayChanged { value, envelope: raw }),
                 Err(remote_protocol::display_control::DisplayControlError::Invalid) => Err(ViewerError::DisplayControl(remote_protocol::display_control::DisplayControlError::Invalid)),
-                Err(remote_protocol::display_control::DisplayControlError::Unexpected) => match envelope.permission_notice() {
-                    Ok(notice) => Ok(ViewerEvent::Permission(notice)),
-                    Err(ProtocolError::UnexpectedMessage) => Ok(ViewerEvent::Other(raw)),
-                    Err(error) => Err(ViewerError::Protocol(error)),
+                Err(remote_protocol::display_control::DisplayControlError::Unexpected) => match envelope.follow_current_display() {
+                    Ok(display) => Ok(ViewerEvent::FollowCurrentDisplay(display)),
+                    Err(remote_protocol::display_control::DisplayControlError::Invalid) => Err(ViewerError::DisplayControl(remote_protocol::display_control::DisplayControlError::Invalid)),
+                    Err(remote_protocol::display_control::DisplayControlError::Unexpected) => match envelope.permission_notice() {
+                        Ok(notice) => Ok(ViewerEvent::Permission(notice)),
+                        Err(ProtocolError::UnexpectedMessage) => Ok(ViewerEvent::Other(raw)),
+                        Err(error) => Err(ViewerError::Protocol(error)),
+                    },
                 },
             },
             MessageKind::Other => match envelope.desktop_peer_info() {

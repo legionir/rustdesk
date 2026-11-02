@@ -58,7 +58,7 @@ export interface ViewerPeerInfo {
   currentDisplay: number; displays: ViewerDisplayInfo[];
 }
 export interface ViewerMessage {
-  kind: 'video' | 'cursorShape' | 'cursorId' | 'cursorPosition' | 'testDelay' | 'peerInfo' | 'displayChanged' | 'permission' | 'other';
+  kind: 'video' | 'cursorShape' | 'cursorId' | 'cursorPosition' | 'testDelay' | 'peerInfo' | 'displayChanged' | 'followCurrentDisplay' | 'permission' | 'other';
   data?: Buffer; display?: number; codec?: string; cursorId?: string;
   x?: number; y?: number; hotx?: number; hoty?: number; width?: number; height?: number; cursorEmbedded?: boolean;
   peer?: ViewerPeerInfo; permission?: number; enabled?: boolean;
@@ -83,6 +83,7 @@ export class Viewer {
   requestCursorShape(id: string, timeoutMs: number): Promise<void>;
   /** Does not change resolution. Host may deny or ignore it. */
   requestDisplay(display: number, timeoutMs: number): Promise<void>;
+  queryDisplay(display: number, timeoutMs: number): Promise<void>;
   /** Empty lists can unsubscribe all displays; host may deny this request. */
   requestCaptureDisplays(add: number[], sub: number[], set: number[], timeoutMs: number): Promise<void>;
   requestRefreshAll(timeoutMs: number): Promise<void>;
@@ -112,7 +113,7 @@ export class LocalHost {
   close(): void;
 }
 export interface LocalHostEvent {
-  kind: 'input' | 'heartbeat' | 'refreshAll' | 'refreshDisplay' | 'frameReceived' | 'displaySwitch' | 'captureDisplays' | 'cursorShapeRequest' | 'decodingAdvertisement';
+  kind: 'input' | 'heartbeat' | 'refreshAll' | 'refreshDisplay' | 'frameReceived' | 'displaySwitch' | 'captureDisplays' | 'displayResolution' | 'displayQuery' | 'cursorShapeRequest' | 'decodingAdvertisement';
   display?: number; cursorId?: string; data?: Buffer; vp8?: number; vp9?: number; av1?: number;
   h264?: number; h265?: number; preference?: number;
 }

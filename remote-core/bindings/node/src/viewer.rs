@@ -218,6 +218,11 @@ impl Viewer {
         let event = Envelope::capture_displays_event(&value).map_err(js_error)?;
         self.display_control_task(event, timeout_ms)
     }
+    /// Request source display metadata. This does not switch a display.
+    #[napi]
+    pub fn query_display(&self, display: u32, timeout_ms: u32) -> Result<AsyncTask<DisplayControlTask>> {
+        self.display_control_task(Envelope::display_query_event(display).map_err(js_error)?, timeout_ms)
+    }
     /// Request a refresh of all displays; host support/rate limits vary.
     #[napi]
     pub fn request_refresh_all(&self, timeout_ms: u32) -> Result<AsyncTask<VideoControlTask>> {
@@ -504,6 +509,7 @@ impl Task for ReceiveTask {
             ViewerEvent::CursorPosition(pos) => { msg.kind = "cursorPosition".into(); msg.x = Some(pos.x); msg.y = Some(pos.y); },
             ViewerEvent::TestDelay(_) => { msg.kind = "testDelay".into(); },
             ViewerEvent::PeerInfo(info) => { msg.kind = "peerInfo".into(); msg.peer = Some(to_js_peer(&info)); },
+            ViewerEvent::FollowCurrentDisplay(display) => { msg.kind = "followCurrentDisplay".into(); msg.display = Some(display as i32); },
             ViewerEvent::DisplayChanged { value, envelope } => { msg.kind = "displayChanged".into(); msg.display = Some(value.display as i32); msg.x = Some(value.x); msg.y = Some(value.y); msg.width = Some(value.width); msg.height = Some(value.height); msg.cursor_embedded = Some(value.cursor_embedded); msg.data = Some(envelope.into_vec().into()); },
             ViewerEvent::Permission(notice) => { msg.kind = "permission".into(); msg.permission = Some(notice.permission); msg.enabled = Some(notice.enabled); },
             ViewerEvent::Other(raw) => { msg.kind = "other".into(); msg.data = Some(raw.into_vec().into()); },
