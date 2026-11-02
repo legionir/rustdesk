@@ -69,3 +69,17 @@ Local process identity, secure key provisioning, OS-wide exclusivity, UI
 consent, cancellation under all races and decoder/desktop safety are not
 established. The implementation and deferred loopback cases are unbuilt,
 untested and unaudited; never treat loopback as an authentication boundary.
+
+### Local approval handoff (experimental, not a consent UI)
+
+`remote-security::approval::ApprovalBroker` and the optional
+`HostConnection::request_owner_approval` / `authorize_with_ticket` methods
+provide a bounded in-process handoff. Tickets are session/generation scoped,
+expire, and are removed on drop; a consumed decision remains one-shot, checks
+its original principal and deadline, and intersects requested permissions. Peer
+labels are unverified and must not be displayed as authenticated identities.
+This is not RustDesk's connection-manager IPC or an OS-authenticated channel:
+any code with a broker clone can approve. The embedding application must present
+a trusted owner prompt, secure any cross-process communication, close expired
+connections and provision identities. Races, revocation and behavior on real
+Windows have not been built, tested or reviewed.

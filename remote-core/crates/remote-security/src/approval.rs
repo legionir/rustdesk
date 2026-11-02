@@ -160,6 +160,22 @@ mod tests {
         drop(old); broker.decide(new.key(), None).unwrap();
     }
     #[test]
+    fn taken_policy_still_checks_expiration_and_wrong_principal_consumes_it() {
+        let (id, principal, request) = fixture();
+        let broker = ApprovalBroker::new(1).unwrap();
+        let past = Instant::now().checked_sub(Duration::from_secs(2)).unwrap();
+        let mut ticket = broker.request_at(id, principal.clone(), "".into(), request, Duration::from_secs(1), past).unwrap();
+        broker.decide_at(ticket.key(), Some(request), past).unwrap();
+        let mut expired = ticket.take_at(past).unwrap().unwrap();
+        assert_eq!(expired.authorize(id, &principal, request).unwrap(), None);
+        let mut ticket = broker.request(id, principal.clone(), "".into(), request, Duration::from_secs(10)).unwrap();
+        broker.decide(ticket.key(), Some(request)).unwrap();
+        let mut policy = ticket.take_decision().unwrap().unwrap();
+        let other = Principal::new("different".into()).unwrap();
+        assert_eq!(policy.authorize(id, &other, request).unwrap(), None);
+        assert_eq!(policy.authorize(id, &principal, request).unwrap(), None);
+    }
+    #[test]
     fn expired_requests_and_old_decisions_are_denied() {
         let (id, principal, request) = fixture(); let broker = ApprovalBroker::new(1).unwrap(); let t = Instant::now();
         let mut ticket = broker.request_at(id, principal, "".into(), request, Duration::from_secs(1), t).unwrap();
