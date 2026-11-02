@@ -24,6 +24,10 @@ if (process.argv[2] !== '--confirm-local-screen-capture') {
       // CLI confirmation stands in for a real, trusted local consent UI.
       await session.approveView(true, 30000);
       viewer = await connecting;
+      const permission = await viewer.receive(30000);
+      if (permission.kind !== 'permission' || permission.permission !== 0 || permission.enabled !== false) {
+        throw new Error('Expected the local host to announce disabled input');
+      }
       const incoming = viewer.receive(30000);
       incoming.catch(() => {});
       // VP9 support is an explicit demo assumption, not auto-detected.

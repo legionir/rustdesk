@@ -294,11 +294,15 @@ impl Task for ApproveTask {
             infos.push(DisplayInfo { x: d.x, y: d.y, width, height, name: String::new(), online: d.online, cursor_embedded: false, scale: 0.0 });
         }
         let info = PeerInfo { username: String::new(), hostname: String::new(), platform: std::env::consts::OS.into(), version: "experimental".into(), displays: infos, current_display: 0, sas_enabled: false, encoding: None };
+        let end = Instant::now().checked_add(self.deadline).ok_or_else(|| Error::from_reason("invalid approval deadline"))?;
         let permissions = Permissions { view_screen: true, ..Default::default() };
         let mut approval = OwnerApproval::new(session.id, session.principal.clone(), Some(permissions));
         session.host.authorize(permissions, &mut approval).map_err(js_error)?;
         session.host.set_authorized_message_limit(POSTAUTH).map_err(js_error)?;
-        runtime()?.block_on(session.host.send_login_success(&info, self.deadline)).map_err(js_error)?;
+        runtime()?.block_on(async {
+            session.host.send_login_success(&info, remaining(end)?).await.map_err(js_error)?;
+            session.host.send_source_keyboard_permission(false, remaining(end)?).await.map_err(js_error)
+        })?;
         session.approved_displays = Some(approved_displays);
         Ok(())
     }

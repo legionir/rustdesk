@@ -137,3 +137,10 @@ is peer-supplied and not validation; callers must recreate the native decoder,
 request refresh and decide render/ACK policy themselves. The tracker neither
 bounds native decoder allocation nor makes untrusted bitstreams safe. Its fake
 unit test has not been run.
+
+The existing source keyboard permission notification covers both mouse and
+keyboard. The host adapter can announce `true` only when both local permissions
+are granted; this cannot faithfully express split permissions, and announcing a
+value does not change the local authorization guard. The view-only Node host
+announces false after login. The viewer returns notices as untrusted events.
+This code and its deferred cases have not been built or run.
