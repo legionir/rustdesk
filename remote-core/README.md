@@ -6,9 +6,10 @@ those crates also bring native libraries and other dependencies. The source
 commit is `23e5bb471a040d62f0a6ad52591fb30784265b73`, and the hbb_common
 submodule is `fae47e024dd83cef6aaecde0aa7d11731df11649`.
 
-The adapter enumerates displays and exposes borrowed CPU frames or a native
-texture handle. It does not implement streaming, input, authentication, codec
-abstraction, a Node.js binding, or a complete multi-platform support contract.
+The capture adapter enumerates displays and exposes borrowed CPU frames or a native
+texture handle. Input and codec prototypes are described below. There is no
+network streaming, authentication, Node.js binding, or complete multi-platform
+support contract.
 Texture interpretation remains platform-specific. `WouldBlock` and timeouts
 retain the original backend's semantics. No guarantees about hotplug, scaling,
 concurrent sessions or stable monitor IDs have yet been established.
@@ -29,7 +30,7 @@ and dependencies before distribution; the final licensing decision is pending.
 
 `remote-codec` adapts the source VP8/VP9/libaom AV1 encoder/decoder for padded
 I420 input and packed CPU output. The implementation is experimental: it does
-does not yet offer H.264/H.265, hardware codecs,
+not yet offer H.264/H.265, hardware codecs,
 packet-loss recovery, codec negotiation or resolution changes in-place. These
 capabilities have not been removed from RustDesk; they have not yet been
 adapted. The decoder must not be used with untrusted streams: packet size checks
@@ -90,3 +91,15 @@ The test expects a capturable display with even dimensions no larger than
 4096×4096 and BGRA/RGBA pixels; it may fail on a locked or unavailable desktop.
 It does not transmit or render frames. Explicitly inspect the desktop and
 permissions before running it.
+
+## Local transport prototype
+
+`remote-transport` adds an async in-process binary transport with bounded
+per-direction queues, size limits, backpressure, deadlines and close handling.
+It is not a network transport and provides no authentication, encryption,
+heartbeat or reconnect. The Linux display integration test now sends encoded
+packet bytes through the local transport before decoding. Packet metadata is
+passed in-process by the test; it is **not** a wire protocol or a complete
+host/viewer session. Existing RustDesk `hbb_common::websocket::WsFramedStream`
+has been inspected, but a WS/WSS adapter has not yet been implemented or
+security-reviewed.

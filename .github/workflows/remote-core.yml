@@ -102,3 +102,20 @@ jobs:
           }
           run_cargo cargo check --manifest-path remote-core/Cargo.toml --workspace
           run_cargo cargo test --manifest-path remote-core/Cargo.toml --workspace
+
+  local-transport:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - name: Test local transport
+        run: cargo test --manifest-path remote-core/Cargo.toml -p remote-transport

@@ -13,3 +13,5 @@ linux-pkg-config = ["scrap/linux-pkg-config"]
 
 [dev-dependencies]
 remote-capture = { path = "../remote-capture" }
+remote-transport = { path = "../remote-transport" }
+tokio = { version = "1.44", features = ["macros", "rt"] }
