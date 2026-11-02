@@ -232,3 +232,9 @@ prove a backend is truly GPU accelerated. It uses the source's process-global
 hardware config and can mutate it on encoder failure; Windows native FFmpeg,
 driver and configuration prerequisites remain. This code and its ignored
 real-hardware test have not been built or run.
+
+`remote-core::capture_pump` connects an already authorized session to an exact
+capture display and software video sender, one caller-driven frame at a time.
+It is synchronous around native capture/encoding and can block the executor;
+run on an appropriate dedicated thread. It is not a host server, renderer,
+consent UI or authenticated transport. It has not been built or tested.

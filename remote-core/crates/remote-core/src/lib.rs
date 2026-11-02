@@ -7,6 +7,8 @@
 
 /// Optional single-controller arbitration within a cooperating process.
 pub mod input_arbiter;
+/// On-demand capture and video delivery for an authorized session.
+pub mod capture_pump;
 
 use std::{error::Error, fmt};
 use remote_input::{InputBackend, InputController, InputError, MouseButton, VirtualKey};

@@ -38,3 +38,14 @@ manual OS recovery. It is not a global or cross-process lock: other input
 paths, unguarded sessions, upstream RustDesk, processes and human input bypass
 it. Windows Enigo cannot report every SendInput failure. The arbiter has fake
 backend tests, not yet run, and is not a security boundary or production proof.
+
+`capture_pump::CapturePump` is a caller-driven bridge from an authorized
+`HostInputSession` and an exact enumerated display handle to the software video
+sender, for local or network-oriented transport. The caller creates and starts
+it, sends frames one at a time and stops it; it creates no background task.
+It refuses capture before view authorization and checks state again each frame.
+Capture and codec operations can synchronously block the calling executor, the
+capture timeout is only a backend hint, hotplug needs recreation, and failed
+sends require encoder reset plus peer resync. Dropping the pump does not change
+the session state or close transport; call `stop` and session cleanup explicitly.
+This code is new, untested, and does not authenticate the transport.

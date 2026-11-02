@@ -6,24 +6,24 @@ publish = false
 
 [dependencies]
 remote-input = { path = "../remote-input" }
+remote-capture = { path = "../remote-capture" }
 remote-session = { path = "../remote-session" }
 remote-codec = { path = "../remote-codec" }
 remote-protocol = { path = "../remote-protocol" }
 remote-transport = { path = "../remote-transport" }
 
 [features]
-linux-pkg-config = ["remote-codec/linux-pkg-config"]
-wayland = ["remote-codec/wayland"]
-drm = ["wayland", "remote-codec/drm"]
-hwcodec = ["remote-codec/hwcodec"]
-vram = ["hwcodec", "remote-codec/vram"]
-mediacodec = ["remote-codec/mediacodec"]
+linux-pkg-config = ["remote-capture/linux-pkg-config", "remote-codec/linux-pkg-config"]
+wayland = ["remote-capture/wayland", "remote-codec/wayland"]
+drm = ["wayland", "remote-capture/drm", "remote-codec/drm"]
+hwcodec = ["remote-capture/hwcodec", "remote-codec/hwcodec"]
+vram = ["hwcodec", "remote-capture/vram", "remote-codec/vram"]
+mediacodec = ["remote-capture/mediacodec", "remote-codec/mediacodec"]
 
 [dev-dependencies]
 base = { path = "../../../libs/base" }
 hbb_common = { path = "../../../libs/hbb_common" }
 remote-rustdesk-websocket = { path = "../../adapters/rustdesk" }
-remote-capture = { path = "../remote-capture" }
 remote-security = { path = "../remote-security" }
 getrandom = "0.2"
 tokio = { version = "1.44", features = ["macros", "rt", "time"] }
