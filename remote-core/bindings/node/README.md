@@ -2,10 +2,10 @@
 
 This is a partial binding, not a Node remote desktop SDK. It currently exposes
 display enumeration, a single raw capture and single-frame software encoding
-using RustDesk adapters. It also has an experimental, limited direct-TCP viewer
-with pinned source key exchange and basic password login. It does not expose a
-host server, trusted consent, codec negotiation, decoded video rendering or a
-complete input API. No binary is shipped. The API and build have not been tested
+using RustDesk adapters. It also has limited pinned TCP/WSS viewers and an
+experimental loopback-only, view-only single-frame host. It does not provide a
+general host server, trusted consent, automatic codec negotiation, decoded
+video rendering or a complete input API. No binary is shipped. The API and build have not been tested
 or security-audited.
 
 Install the same Rust/native dependencies needed by the Rust workspace, then:
@@ -70,8 +70,9 @@ synthetic cursor cases have not been built, tested or security audited.
 exchange and the basic password/login flow, then returns a `Viewer`. The host
 requires an independently configured owner policy. The caller must securely
 obtain and rotate the pin and ensure the remote end is trusted. This code is
-not audited; no rendezvous trust chain, WSS Node binding, TLS, 2FA, complete
-RustDesk compatibility, rate limiting or replay audit is provided. Do not use
+not audited; this direct TCP path has no rendezvous trust chain, TLS, 2FA,
+complete RustDesk compatibility, rate limiting or replay audit. A separate WSS
+viewer is described below. Do not use
 it with untrusted peers.
 
 `peerInfo()` returns a login snapshot; `sendMouse()` sends a limited wire event;

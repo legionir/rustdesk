@@ -1,13 +1,12 @@
 # RemoteCore progress
 
-> Current status: extraction is incomplete. The increments below are historical;
-> later sections supersede earlier statements about features. The latest local
-> code adds a caller-driven session-bound capture pump, cursor wire/cache APIs
-> and Windows cursor-position sampling. These additions, along with all work
-> after local transport CI run 41395071344, have not been built or tested. No
-> secure host/viewer, peer-bound authorization, standalone verified build,
-> complete Windows input/cursor support, or a complete, verified Node network/session API
-> is available. A narrow experimental pinned direct-TCP Node viewer exists. No post-deferral CI has been run.
+> Current status: extraction is incomplete. Later sections supersede historical
+> increments below. Experimental, caller-driven host/viewer, TCP/WSS, video
+> controls, cursor and restricted Windows input adapters, plus a narrow Node
+> viewer and loopback-only view host, have been added. Everything after local
+> transport CI run 41395071344 remains unbuilt and untested by request; no
+> post-deferral CI has run. These are not a verified standalone library or a
+> production-security guarantee. Real Windows desktop and audit gates remain.
 
 ## Windows-first capture and codec increment
 

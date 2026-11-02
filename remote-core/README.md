@@ -67,9 +67,9 @@ is best-effort and cannot handle process crash or power loss. This module is not
 an authenticator or a sandbox. Only use it under an authenticated, authorized
 session manager that serializes access to the OS input device; concurrent
 controllers can otherwise interfere with each other's keys. Layout conversion,
-scan-code modes, full text/IME, repeat and monitor-relative mapping are not implemented.
-A limited legacy BMP text path and opt-in tracked modifiers were added later,
-but they do not reproduce full source input behavior.
+full scan-code/layout translation, text/IME, repeat and monitor-relative mapping
+are not implemented. Limited legacy BMP text, opt-in tracked modifiers and a
+restricted Windows Map-mode raw scan path do not reproduce full source behavior.
 Experimental mouse and unmodified legacy-control-key protocol translation covers
 only a subset and is documented in `../docs/api/protocol.md`.
 
@@ -241,10 +241,9 @@ It is synchronous around native capture/encoding and can block the executor;
 run on an appropriate dedicated thread. It is not a host server, renderer,
 consent UI or authenticated transport. It has not been built or tested.
 
-The Node addon includes an experimental direct TCP viewer with strict pinned
-source-v1 exchange, basic password login, single-operation message reception
-and restricted mouse send. It does not render video or provide a complete input
-or host API. Its security and build are unverified; see `bindings/node/README.md`.
+The Node addon includes experimental pinned direct TCP/WSS viewers and a
+loopback-only, view-only single-frame host. It does not render video or provide
+a complete input or general network host API. Its security and build are unverified; see `bindings/node/README.md`.
 
 A further manual `windows_loopback_session` example composes the provisional
 direct TCP framing, pinned source-v1 key exchange, password/owner approval,
