@@ -111,3 +111,12 @@ HTTP origin/path policy, endpoint authentication, relay routing, aggregate DoS
 protection or secure certificate provisioning is supplied. The synthetic local
 TLS/source-key-exchange case has been written but not run. Neither component is
 reviewed or appropriate for public exposure.
+
+An opt-in `UpgradePolicy` can require an exact Host and path, reject query
+strings, and allow either one exact Origin and/or absent Origin during the WSS
+upgrade. `accept_wss_with_policy` composes it with admission and source key
+exchange. These caller-configured headers are forgeable by non-browser clients
+and are not identity, permission or relay authorization. Hostnames, proxy
+rewrites, browser origins and URI policy must be decided for the deployment;
+the permissive `accept_wss` remains explicitly separate. Policy and handshake
+cases are written but not executed.

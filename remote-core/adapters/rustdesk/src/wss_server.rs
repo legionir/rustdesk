@@ -188,15 +188,30 @@ mod tests {
         assert!(!policy.matches(&duplicate));
     }
     #[tokio::test]
+    async fn rejects_wrong_upgrade_path_before_source_handshake() {
+        let (server_config, client_config) = configs();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let policy = UpgradePolicy::new("/correct".into(), format!("localhost:{port}"), None, true).unwrap();
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            StrictWssServer::accept_with_policy(stream, server_config, 1024, WAIT, policy, WssServerOptIn::acknowledge_tls_and_origin_are_not_authentication()).await.is_err()
+        });
+        let url = url::Url::parse(&format!("wss://localhost:{port}/wrong")).unwrap();
+        assert!(StrictWss::connect_with_config(url, 1024, WAIT, client_config).await.is_err());
+        assert!(timeout(WAIT, task).await.unwrap().unwrap());
+    }
+    #[tokio::test]
     async fn tls_websocket_and_source_encryption_exchange_binary() {
         sodiumoxide::init().unwrap();
         let (server_config, client_config) = configs();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let (public, secret) = sign::gen_keypair();
+        let policy = UpgradePolicy::new("/".into(), format!("localhost:{port}"), None, true).unwrap();
         let task = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            let ws = StrictWssServer::accept(stream, server_config, 128 * 1024, WAIT, WssServerOptIn::acknowledge_missing_admission_and_origin_policy()).await.unwrap();
+            let ws = StrictWssServer::accept_with_policy(stream, server_config, 128 * 1024, WAIT, policy, WssServerOptIn::acknowledge_tls_and_origin_are_not_authentication()).await.unwrap();
             let mut secured = accept_pinned_host(ws, "test-host", &secret, 128 * 1024 - 16, WAIT).await.unwrap();
             secured.set_max_message_size(4096).unwrap();
             assert_eq!(&*secured.receive(WAIT).await.unwrap(), b"hello");
