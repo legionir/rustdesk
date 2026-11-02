@@ -92,3 +92,11 @@ This is not the RustDesk portable-service cursor path and is not built or
 verified on an interactive desktop, UAC or service session. Cursor handles may
 be reused and non-cryptographic content IDs may collide. Hidden cursor signaling
 and source caching/animation semantics are not implemented.
+
+`remote-protocol::desktop` covers a bounded subset of the existing login
+response and PeerInfo display fields; it does not add or modify wire fields.
+Its display/metadata limits are adapter policy, not upstream limits. A success
+message does not prove peer identity, runtime codec availability or display
+safety. Features, supported resolutions, OS session lists, trusted-device
+fields and original resolution are not constructed by this subset. Both the
+constructor and parser are new and untested.
