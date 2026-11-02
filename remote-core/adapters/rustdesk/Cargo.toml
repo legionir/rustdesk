@@ -6,5 +6,8 @@ publish = false
 
 [dependencies]
 hbb_common = { path = "../../../libs/hbb_common" }
-tokio = { version = "1.44", features = ["time"] }
+tokio = { version = "1.44", features = ["time", "net"] }
 url = "2.5"
+
+[dev-dependencies]
+tokio = { version = "1.44", features = ["macros", "rt", "net", "time"] }

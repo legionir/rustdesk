@@ -145,3 +145,6 @@ impl LoopbackWebSocket {
     /// Drop the socket. This does not wait for a WebSocket close handshake.
     pub fn close(&mut self) { self.stream.take(); }
 }
+
+/// Loopback-only TCP adapter using RustDesk's existing framed stream.
+pub mod tcp;

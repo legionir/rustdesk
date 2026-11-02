@@ -197,3 +197,10 @@ The exporter uses Git objects, so uncommitted changes are excluded. It records
 commits and archive hashes in `SOURCE_PROVENANCE.md`. The inherited lockfile is
 only a resolution starting point: a locked independent build and license review
 are still outstanding. The exported tree is experimental and untested.
+
+The RustDesk adapter also contains experimental loopback-only TCP client and
+listener wrappers using RustDesk's existing `FramedStream` codec. These are
+plaintext and do not authenticate local peers; never use them for credentials,
+remote input or private screen contents. Send failures have indeterminate
+delivery, and the wrapper does not implement the in-process transport's
+stronger cancellation contract. TCP adapter tests are written but unrun.

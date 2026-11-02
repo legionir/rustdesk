@@ -24,3 +24,14 @@ end-to-end or authenticated transport, message bounds, denial-of-service tests,
 heartbeat/reconnect behavior, and actual WSS interoperability testing.
 
 This code has not yet been built or tested.
+
+The adapter also has an experimental `LoopbackTcpListener`/`LoopbackTcp`
+using the original `hbb_common::tcp::FramedStream` and its `BytesCodec` framing,
+without changing RustDesk's wire protocol. It binds and connects only literal
+loopback IP addresses. This is plaintext, unauthenticated, and unsuitable for
+credentials, remote input or private screen contents: other local processes may
+connect. Per-message limits are set before reading. A timed-out or cancelled
+I/O operation drops the socket; send delivery is indeterminate. It deliberately
+does not implement the in-process `Transport` cancellation contract. No
+handshake, TLS, real session binding or Internet-facing TCP is provided. Tests
+have been written but not run.
