@@ -52,6 +52,9 @@ mod tests {
         let displays = [true, true, true];
         assert_eq!(plan(&[0], &request(&[1], &[0], &[2]), &displays, 3).unwrap().active, vec![0, 1]);
         assert_eq!(plan(&[0, 1], &request(&[], &[0], &[2]), &displays, 3).unwrap().active, vec![0]);
+        // Source sub is an inclusion filter, not subtraction or an add: a
+        // valid but inactive listed display can leave no subscriptions.
+        assert!(plan(&[0, 1], &request(&[], &[2], &[]), &displays, 3).unwrap().active.is_empty());
         let result = plan(&[0, 1], &request(&[], &[], &[]), &displays, 3).unwrap();
         assert_eq!(result.stop, vec![0, 1]); assert!(result.active.is_empty());
     }
