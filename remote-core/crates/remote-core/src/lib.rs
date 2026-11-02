@@ -20,6 +20,8 @@ pub mod viewer_connection;
 pub mod video_sync;
 /// Caller-driven source-style video pacing and probe/ACK bookkeeping.
 pub mod video_schedule;
+/// Caller-driven planning for source multi-display subscriptions.
+pub mod display_selection;
 /// Experimental Windows DXGI/VRAM session-bound capture.
 #[cfg(all(target_os = "windows", feature = "vram"))]
 pub mod vram_pump;
