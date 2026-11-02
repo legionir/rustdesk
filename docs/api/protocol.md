@@ -58,3 +58,12 @@ encoder output into the existing RustDesk VideoFrame oneof and send it through
 after an interrupted send; the application must renegotiate/resynchronize the
 peer. This path does not implement hardware decoding, codec negotiation, secure
 peer binding, or native driver isolation, and has not been built or tested.
+
+`remote-protocol` can inspect SupportedDecoding in login/Misc option messages,
+and SupportedEncoding in Misc, PeerInfo or successful LoginResponse, preserving
+raw decoder ability/preference values. Its explicit advertisement constructor
+emits the source Misc→Option→SupportedDecoding layout, with no I444 claims.
+Claims are untrusted and are not runtime probes. RustDesk's SupportedEncoding
+has no VP9 flag; do not infer a working encoder solely from the schema. The
+source protobuf remains the wire format, not a new protocol. These adapters are
+not built or tested.

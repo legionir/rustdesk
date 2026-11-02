@@ -6,7 +6,7 @@
 //! fields before acting. Parsing does not authenticate the sender, prevent
 //! replay, or enforce all semantic and memory-allocation limits.
 
-use base::message_proto::{self, message, video_frame, Message};
+use base::message_proto::{self, message, misc, video_frame, Message};
 use hbb_common::protobuf::Message as ProtobufMessage;
 use std::{error::Error, fmt};
 
@@ -114,6 +114,73 @@ impl Envelope {
             Some(message::Union::MouseEvent(event)) => Ok(MouseEvent { mask: event.mask, x: event.x, y: event.y }),
             _ => Err(ProtocolError::UnexpectedMessage),
         }
+    }
+    /// Read an existing SupportedDecoding payload from a login or Misc option.
+    /// Values are claims supplied by a peer, not proof a decoder works.
+    pub fn supported_decoding(&self) -> Result<DecodingCapabilities, ProtocolError> {
+        let source = self.source_supported_decoding()?;
+        Ok(DecodingCapabilities {
+            vp8: source.ability_vp8, vp9: source.ability_vp9, av1: source.ability_av1,
+            h264: source.ability_h264, h265: source.ability_h265,
+            preference: source.prefer.value(), preferred_chroma: source.prefer_chroma.value(),
+            i444: source.i444.as_ref().map(|c| ChromaCapabilities { vp8: c.vp8, vp9: c.vp9, av1: c.av1, h264: c.h264, h265: c.h265 }),
+        })
+    }
+    /// Access the source protobuf for source-compatible negotiation adapters.
+    /// It remains untrusted and can carry unknown fields; do not treat this
+    /// as a stable independent public API.
+    pub fn source_supported_decoding(&self) -> Result<&message_proto::SupportedDecoding, ProtocolError> {
+        let option = match self.inner.union.as_ref() {
+            Some(message::Union::LoginRequest(login)) => login.option.as_ref(),
+            Some(message::Union::Misc(misc)) => match misc.union.as_ref() {
+                Some(misc::Union::Option(option)) => Some(option),
+                _ => None,
+            },
+            _ => None,
+        };
+        option.and_then(|o| o.supported_decoding.as_ref()).ok_or(ProtocolError::UnexpectedMessage)
+    }
+    /// Construct the same Misc→Option→SupportedDecoding update used by the
+    /// RustDesk client. Only explicitly declared abilities are advertised;
+    /// the caller must verify runtime support and authorization separately.
+    pub fn supported_decoding_event(ad: DecodingAdvertisement) -> Self {
+        use message_proto::supported_decoding::PreferCodec;
+        let preference = match ad.preference {
+            CodecPreference::Auto => PreferCodec::Auto, CodecPreference::Vp8 => PreferCodec::VP8,
+            CodecPreference::Vp9 => PreferCodec::VP9, CodecPreference::Av1 => PreferCodec::AV1,
+            CodecPreference::H264 => PreferCodec::H264, CodecPreference::H265 => PreferCodec::H265,
+        };
+        let decoding = message_proto::SupportedDecoding {
+            ability_vp8: ad.vp8 as i32, ability_vp9: ad.vp9 as i32, ability_av1: ad.av1 as i32,
+            ability_h264: ad.h264 as i32, ability_h265: ad.h265 as i32, prefer: preference.into(),
+            ..Default::default()
+        };
+        let option = message_proto::OptionMessage {
+            supported_decoding: Some(decoding).into(), ..Default::default()
+        };
+        let mut misc = message_proto::Misc::new();
+        misc.set_option(option);
+        let mut inner = Message::new(); inner.set_misc(misc);
+        Self { inner }
+    }
+    /// Inspect the source SupportedEncoding advertisement in a Misc message,
+    /// PeerInfo message, or successful LoginResponse. VP9 is implicit in the
+    /// source schema and must not be inferred as operational without probing.
+    pub fn supported_encoding(&self) -> Result<EncodingCapabilities, ProtocolError> {
+        let source = match self.inner.union.as_ref() {
+            Some(message::Union::Misc(m)) => match m.union.as_ref() {
+                Some(misc::Union::SupportedEncoding(e)) => Some(e),
+                _ => None,
+            },
+            Some(message::Union::PeerInfo(p)) => p.encoding.as_ref(),
+            Some(message::Union::LoginResponse(r)) => match r.union.as_ref() {
+                Some(message_proto::login_response::Union::PeerInfo(p)) => p.encoding.as_ref(),
+                _ => None,
+            },
+            _ => None,
+        }.ok_or(ProtocolError::UnexpectedMessage)?;
+        Ok(EncodingCapabilities { vp8: source.vp8, av1: source.av1, h264: source.h264, h265: source.h265,
+            i444: source.i444.as_ref().map(|c| ChromaCapabilities { vp8: c.vp8, vp9: c.vp9, av1: c.av1, h264: c.h264, h265: c.h265 }) })
     }
     /// Inspect the existing RustDesk password challenge fields.
     pub fn password_challenge(&self) -> Result<PasswordChallenge<'_>, ProtocolError> {
@@ -243,6 +310,36 @@ impl Envelope {
 
 fn validate_limit(max_bytes: usize) -> Result<(), ProtocolError> {
     if max_bytes == 0 || max_bytes > MAX_ENVELOPE_BYTES { Err(ProtocolError::InvalidLimit) } else { Ok(()) }
+}
+
+/// Optional source I444 codec ability flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChromaCapabilities { pub vp8: bool, pub vp9: bool, pub av1: bool, pub h264: bool, pub h265: bool }
+/// Untrusted decoder capability values preserved from RustDesk's wire schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DecodingCapabilities {
+    pub vp8: i32, pub vp9: i32, pub av1: i32, pub h264: i32, pub h265: i32,
+    /// Raw source enum value, including unrecognized values.
+    pub preference: i32,
+    /// Raw source chroma enum value, including unrecognized values.
+    pub preferred_chroma: i32,
+    pub i444: Option<ChromaCapabilities>,
+}
+/// Encoder claims from RustDesk's schema. VP9 has no explicit flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EncodingCapabilities {
+    pub vp8: bool, pub av1: bool, pub h264: bool, pub h265: bool,
+    pub i444: Option<ChromaCapabilities>,
+}
+/// Preference in the existing RustDesk SupportedDecoding message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodecPreference { Auto, Vp8, Vp9, Av1, H264, H265 }
+/// Explicit decoder abilities to send in a RustDesk option message.
+/// I444 and non-default chroma are not advertised by this constructor.
+#[derive(Debug, Clone, Copy)]
+pub struct DecodingAdvertisement {
+    pub vp8: bool, pub vp9: bool, pub av1: bool, pub h264: bool, pub h265: bool,
+    pub preference: CodecPreference,
 }
 
 /// Borrowed RustDesk password challenge fields.
