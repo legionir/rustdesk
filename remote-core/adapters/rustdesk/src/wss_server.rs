@@ -22,6 +22,8 @@ type Socket = WebSocketStream<TlsStream<TcpStream>>;
 pub struct WssServerOptIn(());
 impl WssServerOptIn {
     pub fn acknowledge_missing_admission_and_origin_policy() -> Self { Self(()) }
+    /// Origin/path checks are not peer authentication or consent.
+    pub fn acknowledge_tls_and_origin_are_not_authentication() -> Self { Self(()) }
 }
 /// Exact HTTP upgrade constraints supplied by a trusted application.
 /// Origin checks mitigate accidental browser access but are not authentication:

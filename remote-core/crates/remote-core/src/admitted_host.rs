@@ -86,12 +86,40 @@ pub async fn accept_wss<B: InputBackend>(
     host_id: &str, signing_key: &sign::SecretKey, deadline: Duration,
     acknowledge: remote_rustdesk_websocket::wss_server::WssServerOptIn,
 ) -> Result<HostConnection<EncryptedTransport<remote_rustdesk_websocket::wss_server::StrictWssServer>, B>, WssAcceptError> {
+    accept_wss_inner(stream, tls, permit, id, backend, verifier, host_id, signing_key, deadline, None, acknowledge).await
+}
+
+/// Pre-admitted WSS host with explicitly selected exact HTTP Host/path/Origin
+/// constraints. These headers can be forged by non-browser clients and do not
+/// authenticate an endpoint. All `accept_wss` caveats still apply.
+pub async fn accept_wss_with_policy<B: InputBackend>(
+    stream: tokio::net::TcpStream,
+    tls: std::sync::Arc<remote_rustdesk_websocket::wss_server::ServerTlsConfig>,
+    permit: AdmissionPermit, id: SessionId, backend: B, verifier: PasswordVerifier,
+    host_id: &str, signing_key: &sign::SecretKey, deadline: Duration,
+    policy: remote_rustdesk_websocket::wss_server::UpgradePolicy,
+    acknowledge: remote_rustdesk_websocket::wss_server::WssServerOptIn,
+) -> Result<HostConnection<EncryptedTransport<remote_rustdesk_websocket::wss_server::StrictWssServer>, B>, WssAcceptError> {
+    accept_wss_inner(stream, tls, permit, id, backend, verifier, host_id, signing_key, deadline, Some(policy), acknowledge).await
+}
+
+async fn accept_wss_inner<B: InputBackend>(
+    stream: tokio::net::TcpStream,
+    tls: std::sync::Arc<remote_rustdesk_websocket::wss_server::ServerTlsConfig>,
+    permit: AdmissionPermit, id: SessionId, backend: B, verifier: PasswordVerifier,
+    host_id: &str, signing_key: &sign::SecretKey, deadline: Duration,
+    policy: Option<remote_rustdesk_websocket::wss_server::UpgradePolicy>,
+    acknowledge: remote_rustdesk_websocket::wss_server::WssServerOptIn,
+) -> Result<HostConnection<EncryptedTransport<remote_rustdesk_websocket::wss_server::StrictWssServer>, B>, WssAcceptError> {
+    use remote_rustdesk_websocket::wss_server::StrictWssServer;
     permit.check_live().map_err(WssAcceptError::Admission)?;
     let wait = deadline.min(permit.remaining());
     if wait.is_zero() { return Err(WssAcceptError::Admission(AdmissionError::Expired)); }
     let end = std::time::Instant::now().checked_add(wait).ok_or(WssAcceptError::Admission(AdmissionError::Expired))?;
-    let transport = remote_rustdesk_websocket::wss_server::StrictWssServer::accept(stream, tls, MAX_PRE_AUTH_BYTES + 16, wait, acknowledge)
-        .await.map_err(WssAcceptError::Transport)?;
+    let transport = match policy {
+        Some(policy) => StrictWssServer::accept_with_policy(stream, tls, MAX_PRE_AUTH_BYTES + 16, wait, policy, acknowledge).await,
+        None => StrictWssServer::accept(stream, tls, MAX_PRE_AUTH_BYTES + 16, wait, acknowledge).await,
+    }.map_err(WssAcceptError::Transport)?;
     let remaining = end.saturating_duration_since(std::time::Instant::now());
     if remaining.is_zero() { return Err(WssAcceptError::Admission(AdmissionError::Expired)); }
     accept(transport, permit, id, backend, verifier, host_id, signing_key, remaining).await.map_err(WssAcceptError::Host)
