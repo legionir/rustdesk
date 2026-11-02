@@ -204,3 +204,10 @@ plaintext and do not authenticate local peers; never use them for credentials,
 remote input or private screen contents. Send failures have indeterminate
 delivery, and the wrapper does not implement the in-process transport's
 stronger cancellation contract. TCP adapter tests are written but unrun.
+
+`strict_wss::StrictWss` is a provisional binary-only WSS **client** built on the
+pinned RustDesk WebSocket fork with its own validating TLS configuration and no
+insecure fallback. It authenticates the WSS endpoint, not the desktop peer, and
+is not end-to-end encrypted through a relay. It does not yet provide a secure
+host/viewer, trusted consent or a hardened video decoder. It has not been built,
+tested or audited; see `docs/architecture/transport-design.md`.

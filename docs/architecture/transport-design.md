@@ -45,3 +45,20 @@ explicit decoder resynchronization remain necessary after interruption. This
 interface provides no authentication, confidentiality, server identity, or
 proof that a peer processed a message. Current implementations remain loopback
 only, plaintext, untested, and unsafe for private desktop content or input.
+
+## Experimental strict WSS client
+
+`strict_wss::StrictWss` is a client-only adapter using the same pinned
+`tokio-tungstenite` fork as `hbb_common`, but constructs a separate Rustls
+configuration with the ring provider and WebPKI plus native roots. It does not
+read the global TLS/proxy cache or use insecure-certificate fallback. It
+requires `wss://`, rejects userinfo, query and fragment, configures frame/message
+bounds before the HTTP upgrade, accepts only binary messages, and closes on
+failed/cancelled in-flight I/O. It does not support proxies, custom roots,
+client certificates, authentication headers or URL queries; these limitations
+can block real deployments. A configured URL must be trusted: arbitrary URLs
+can cause SSRF. The adapter is not a server and does not implement RustDesk's
+signed key exchange or provide end-to-end encryption through a relay. TLS
+validates the WSS server, not a desktop peer behind it. The policy is
+provisional and needs human security/API review and real certificate,
+interoperability and Cloudflare tests before use. No build or tests have run.

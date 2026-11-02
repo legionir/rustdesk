@@ -170,3 +170,6 @@ impl remote_transport::NetworkTransport for LoopbackWebSocket {
     }
     fn close(&mut self) { LoopbackWebSocket::close(self); }
 }
+
+/// Strict, isolated client-side WSS transport. Security review and tests are pending.
+pub mod strict_wss;
