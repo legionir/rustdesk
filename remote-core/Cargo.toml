@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/remote-capture", "crates/remote-codec", "crates/remote-input", "crates/remote-transport"]
+members = ["crates/remote-capture", "crates/remote-codec", "crates/remote-input", "crates/remote-transport", "crates/remote-session", "crates/remote-core"]
 resolver = "2"
 
 # These source patches are required by the RustDesk crates used by this prototype.
