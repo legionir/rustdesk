@@ -37,7 +37,7 @@ impl VramVideoPump {
         if self.stopped || host.id() != self.session_id || self.capture.is_none() { return Err(CapturePumpError::NotAuthorized); }
         host.start_streaming()?; Ok(())
     }
-    pub fn needs_reset(&self) -> bool { self.capture.is_none() }
+    pub fn needs_reset(&self) -> bool { self.capture.as_ref().map_or(true, VramCapture::needs_reset) }
     pub fn bitrate<B: InputBackend>(&self, host: &HostInputSession<B>) -> Result<u32, CapturePumpError> {
         self.check(host)?;
         self.capture.as_ref().ok_or(CapturePumpError::InvalidFrame("VRAM pump needs recreation"))?.bitrate().map_err(CapturePumpError::Capture)
