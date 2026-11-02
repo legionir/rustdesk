@@ -11,7 +11,7 @@ use crate::{video::{VideoError, VideoSender}, HostInputError, HostInputSession};
 use remote_capture::{Capturer, Display, Frame, PixelFormat};
 use remote_codec::{EncoderConfig, PackedFormat};
 use remote_input::InputBackend;
-use remote_session::SessionState;
+use remote_session::{SessionId, SessionState};
 use remote_transport::{NetworkTransport, Transport};
 use std::{error::Error, fmt, io, time::Duration};
 
@@ -53,6 +53,8 @@ enum Output<'a> { Local(&'a mut dyn Transport), Network(&'a mut dyn NetworkTrans
 pub struct CapturePump {
     capturer: Capturer,
     sender: VideoSender,
+    session_id: SessionId,
+    stopped: bool,
     display_index: i32,
     width: usize,
     height: usize,
@@ -75,11 +77,12 @@ impl CapturePump {
         if capturer.width() != config.width as usize || capturer.height() != config.height as usize {
             return Err(CapturePumpError::DimensionsChanged);
         }
-        Ok(Self { capturer, sender, display_index, width: config.width as usize, height: config.height as usize })
+        Ok(Self { capturer, sender, session_id: host.id(), stopped: false, display_index, width: config.width as usize, height: config.height as usize })
     }
     /// Start the host's streaming state after the pump has been created.
     /// This does not spawn a background task.
     pub fn start<B: InputBackend>(&self, host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
+        if self.stopped || host.id() != self.session_id { return Err(CapturePumpError::NotAuthorized); }
         host.start_streaming()?;
         Ok(())
     }
@@ -93,7 +96,7 @@ impl CapturePump {
         self.send_inner(host, Output::Network(transport), capture_wait, send_wait, pts_ms).await
     }
     async fn send_inner<B: InputBackend>(&mut self, host: &mut HostInputSession<B>, output: Output<'_>, capture_wait: Duration, send_wait: Duration, pts_ms: i64) -> Result<(), CapturePumpError> {
-        if host.state() != SessionState::Streaming || !host.permissions().view_screen { return Err(CapturePumpError::NotAuthorized); }
+        if self.stopped || host.id() != self.session_id || host.state() != SessionState::Streaming || !host.permissions().view_screen { return Err(CapturePumpError::NotAuthorized); }
         if capture_wait.is_zero() || send_wait.is_zero() { return Err(CapturePumpError::InvalidFrame("zero deadline")); }
         let frame = self.capturer.frame(capture_wait).map_err(CapturePumpError::Capture)?;
         let pixels = match frame {
@@ -121,10 +124,14 @@ impl CapturePump {
     }
     /// Whether the sender requires recreation after a failed/cancelled send.
     pub fn needs_reset(&self) -> bool { self.sender.needs_reset() }
-    /// Stop the session's streaming state and drop this capture handle.
-    /// The caller must separately close the transport and session as needed.
-    pub fn stop<B: InputBackend>(self, host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
+    /// Stop this pump and mark its bound session's streaming state stopped.
+    /// The capture handle is released when the pump is dropped. The caller must
+    /// separately close the transport and session as needed. A failed stop keeps
+    /// the pump so the correct session can be supplied or cleanup can be retried.
+    pub fn stop<B: InputBackend>(&mut self, host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
+        if self.stopped || host.id() != self.session_id { return Err(CapturePumpError::NotAuthorized); }
         host.stop_streaming()?;
+        self.stopped = true;
         Ok(())
     }
 }

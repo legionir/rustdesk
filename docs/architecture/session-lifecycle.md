@@ -43,9 +43,12 @@ backend tests, not yet run, and is not a security boundary or production proof.
 `HostInputSession` and an exact enumerated display handle to the software video
 sender, for local or network-oriented transport. The caller creates and starts
 it, sends frames one at a time and stops it; it creates no background task.
-It refuses capture before view authorization and checks state again each frame.
+It refuses capture before view authorization, remembers the supplied session ID,
+and checks the ID and state again each frame. Session IDs still require secure
+generation and uniqueness; an ID is not proof of transport binding.
 Capture and codec operations can synchronously block the calling executor, the
 capture timeout is only a backend hint, hotplug needs recreation, and failed
 sends require encoder reset plus peer resync. Dropping the pump does not change
-the session state or close transport; call `stop` and session cleanup explicitly.
+the session state or close transport; call `stop`, drop the pump to release
+capture, and perform session cleanup explicitly.
 This code is new, untested, and does not authenticate the transport.
