@@ -8,6 +8,9 @@
 //! channel. This crate is not audited and does not implement TLS, rate limiting,
 //! persistent replay defense, token management, 2FA, or owner-consent UI.
 
+/// Bounded pre-authorization admission for cooperating connection managers.
+pub mod admission;
+
 use remote_session::{Authenticator, Authorizer, Credential, Permissions, Principal, SessionId};
 use sha2::{Digest, Sha256};
 use std::{error::Error, fmt, time::{Duration, Instant}};

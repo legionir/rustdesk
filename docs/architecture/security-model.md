@@ -25,3 +25,14 @@ controls; brute-force/connection limits; credentials storage and rotation;
 expiry policy across process restarts; RustDesk 2FA and trusted-device behavior;
 security tests and audit. The adapter has not been built or tested. It is not a
 claim of authentication compatibility for the whole RustDesk login flow.
+
+`remote-security::admission` adds an optional bounded in-process pre-auth slot
+controller using the source defaults (64 total, 16 per address, 180 seconds,
+128 KiB suggested message cap). The caller must enforce the message cap, run
+timers, close expired sockets, and retain permits until *all* authorization
+succeeds. Unlike upstream, this provisional version refuses new connections at
+capacity rather than evicting the oldest. It does not implement rate limiting,
+2FA, ID whitelist, secure identity or distributed-attack prevention, and cannot
+trust relay-provided client IPs without separate validation. Bypass paths and
+multiple processes are outside its scope. It has not been built or tested; the
+policy difference requires security review before deployment.
