@@ -50,3 +50,17 @@ in-process, not over the TCP socket. Neither TCP nor the existing loopback WS is
 an authenticated/encrypted transport; the prototype is not safe to expose to
 untrusted peers. Production WSS, peer binding, consent, a complete host/viewer
 and secure bitstream handling remain open.
+
+## Provisional Windows input dispatch (not tested)
+
+`windows_mouse::dispatch` routes absolute and bounded relative motion, five
+mouse buttons and ordinary wheel events through the session guard. Modifier
+lists, trackpad, touch and other event forms are explicitly unsupported. A
+separate `windows_keyboard::dispatch` covers only unmodified legacy control
+keys; it does not translate text, scan codes or modifiers, sync OS state or
+support Windows portable-service desktop switching. The gate for mouse is an
+independent `control_mouse` permission, unlike RustDesk's shared
+`peer_keyboard_enabled()` gate; that decision remains subject to review. Both
+have fake-backend tests, written but not run, and neither demonstrates actual
+Windows input. There is still no input arbitration across sessions or secure
+network-to-session binding. These APIs must not be exposed to untrusted peers.
