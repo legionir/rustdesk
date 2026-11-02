@@ -206,3 +206,16 @@ explicit acknowledgement, not a security check. Input (16 MiB) and copied-output
 CPU or vulnerabilities while decoding. Use only authenticated, independently
 trusted local test data in an isolated environment; the decoder and API have not
 been built, tested, hardened or audited. At most one such task runs concurrently.
+
+### Experimental display control
+
+The viewer can request a display switch, request subscription lists, query
+metadata, and explicitly confirm a remote resolution-change request. These
+messages may affect another machine when handled by a RustDesk-compatible
+peer; the peer must independently authorize them. The local loopback host is
+view-only and does not implement switching or resolution changes. The source
+`sub` subscription list retains listed existing streams rather than subtracting
+them, and an empty set can unsubscribe all streams. Display indices may change
+on hotplug. `displayChanged` and `followCurrentDisplay` events are untrusted
+peer claims; `displayChanged.data` retains the original bounded protobuf.
+The methods and types have not been built or tested.
