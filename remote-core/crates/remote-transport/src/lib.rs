@@ -267,3 +267,48 @@ pub trait AdjustableNetworkTransport: NetworkTransport {
     /// No operation may be in flight. Failure must not silently raise the limit.
     fn set_max_message_size(&mut self, maximum: usize) -> Result<(), NetworkTransportError>;
 }
+
+/// A local channel exposed through the network-oriented cancellation contract.
+/// This is useful for composing host/viewer logic in one process; it is not
+/// network security, cross-process IPC, or evidence of remote interoperability.
+/// An interrupted operation discards and closes the endpoint. The local sender
+/// itself has stronger no-enqueue-on-cancel semantics than network transports.
+pub struct LocalNetworkTransport { inner: Option<LocalTransport> }
+
+/// Construct a bounded local pair using the network-oriented interface.
+/// Queue and message allocation caveats are the same as `local_pair`.
+pub fn local_network_pair(config: LocalConfig) -> Result<(LocalNetworkTransport, LocalNetworkTransport), TransportError> {
+    let (a, b) = local_pair(config)?;
+    Ok((LocalNetworkTransport { inner: Some(a) }, LocalNetworkTransport { inner: Some(b) }))
+}
+impl NetworkTransport for LocalNetworkTransport {
+    fn send<'a>(&'a mut self, bytes: &'a [u8], deadline: Duration) -> TransportFuture<'a, Result<(), NetworkTransportError>> {
+        Box::pin(async move {
+            if deadline.is_zero() { return Err(NetworkTransportError::InvalidRequest("invalid deadline".into())); }
+            let mut inner = self.inner.take().ok_or(NetworkTransportError::Closed)?;
+            match Transport::send(&mut inner, bytes, deadline).await {
+                Ok(()) => { self.inner = Some(inner); Ok(()) },
+                Err(TransportError::MessageTooLarge { size, maximum }) => {
+                    // The local implementation rejected the send before I/O.
+                    self.inner = Some(inner);
+                    Err(NetworkTransportError::InvalidRequest(format!("message of {size} bytes exceeds {maximum}")))
+                },
+                Err(TransportError::Closed) => Err(NetworkTransportError::Closed),
+                Err(_) => Err(NetworkTransportError::SendOutcomeUnknown("local transport failed".into())),
+            }
+        })
+    }
+    fn receive(&mut self, deadline: Duration) -> TransportFuture<'_, Result<Box<[u8]>, NetworkTransportError>> {
+        Box::pin(async move {
+            if deadline.is_zero() { return Err(NetworkTransportError::InvalidRequest("invalid deadline".into())); }
+            let mut inner = self.inner.take().ok_or(NetworkTransportError::Closed)?;
+            match Transport::receive(&mut inner, deadline).await {
+                Ok(bytes) => { self.inner = Some(inner); Ok(bytes) },
+                Err(TransportError::Closed) => Err(NetworkTransportError::Closed),
+                Err(_) => Err(NetworkTransportError::ReceiveFailed("local transport failed".into())),
+            }
+        })
+    }
+    fn close(&mut self) { self.inner.take(); }
+}
+impl Drop for LocalNetworkTransport { fn drop(&mut self) { NetworkTransport::close(self); } }
