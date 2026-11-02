@@ -145,3 +145,10 @@ complete host or viewer; codec negotiation, renderer, authenticated transport,
 reconnection, bounded native decoder allocations and live task cancellation
 are not implemented. The receiver must not be exposed to untrusted peers. This
 pipeline has not been built or tested.
+
+`remote-rustdesk-websocket` is an experimental wrapper around the original
+RustDesk WebSocket client, limited to literal loopback `ws://` addresses. It
+is unauthenticated and accepts upstream plaintext text frames; it is not a WSS
+adapter or a secure network transport. WSS remains blocked on isolation of the
+source's global TLS/proxy configuration and a reviewed security design. This
+adapter has not yet been built or tested.
