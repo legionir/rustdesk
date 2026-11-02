@@ -84,7 +84,11 @@ wire compatibility nor adversarial decompression behavior has been tested.
 
 On Windows, `remote-capture::windows_cursor::snapshot` exposes only local
 current-desktop cursor visibility, coordinates and a transient handle-derived
-ID, and `remote-core::windows_cursor_snapshot` adds a session view check. This
-is not RustDesk's portable-service cursor path, does not obtain a shape, and is
-not verified on an interactive desktop, UAC or service session. A handle ID can
-be reused and must not be assumed to be the source's content-derived shape ID.
+ID, and `remote-core::windows_cursor_snapshot` adds a session view check. An
+experimental `capture_shape` now adapts source bitmap handling and a host
+connection can send a visible shape and position after view authorization. It
+computes the source's 53-bit XXH3 content ID, not the transient Windows handle.
+This is not the RustDesk portable-service cursor path and is not built or
+verified on an interactive desktop, UAC or service session. Cursor handles may
+be reused and non-cryptographic content IDs may collide. Hidden cursor signaling
+and source caching/animation semantics are not implemented.

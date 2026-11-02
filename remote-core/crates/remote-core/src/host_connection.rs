@@ -52,6 +52,10 @@ pub enum ConnectionError {
     Capture(CapturePumpError),
     Mouse(windows_mouse::DispatchError),
     Keyboard(windows_keyboard::DispatchError),
+    /// Cursor wire validation/compression failed.
+    Cursor(remote_protocol::cursor::CursorError),
+    /// Local Windows cursor sampling failed.
+    CursorCapture(std::io::Error),
 }
 impl fmt::Display for ConnectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -67,6 +71,8 @@ impl fmt::Display for ConnectionError {
             Self::Capture(e) => write!(f, "capture: {e}"),
             Self::Mouse(e) => write!(f, "mouse: {e}"),
             Self::Keyboard(e) => write!(f, "keyboard: {e}"),
+            Self::Cursor(e) => write!(f, "cursor protocol: {e}"),
+            Self::CursorCapture(e) => write!(f, "cursor capture: {e}"),
         }
     }
 }
@@ -206,6 +212,45 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
     pub fn stop_capture(&mut self, pump: &mut CapturePump) -> Result<(), ConnectionError> {
         if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
         pump.stop(&mut self.host)?; Ok(())
+    }
+    /// Sample and send one visible current-desktop Windows cursor shape and
+    /// position over this connection. No caching/deduplication is attempted;
+    /// both messages are sent each call. A hidden cursor returns false without
+    /// sending a hide event, since that behavior is not implemented here.
+    /// Cursor sampling can block and is not the source portable-service path.
+    /// If the handle changes during sampling, the sample is discarded. Handle
+    /// reuse and 53-bit content-hash collisions remain possible. Cancellation
+    /// leaves the connection Busy and requires close/drop.
+    #[cfg(target_os = "windows")]
+    pub async fn send_windows_cursor(&mut self, deadline: Duration) -> Result<bool, ConnectionError> {
+        if self.phase != Phase::Authorized || deadline.is_zero()
+            || !self.host.permissions().view_screen
+            || !matches!(self.host.state(), SessionState::Connected | SessionState::Streaming) {
+            return Err(ConnectionError::InvalidState);
+        }
+        let shape = match remote_capture::windows_cursor::capture_shape().map_err(ConnectionError::CursorCapture)? {
+            Some(shape) => shape, None => return Ok(false),
+        };
+        let position = remote_capture::windows_cursor::snapshot().map_err(ConnectionError::CursorCapture)?;
+        if !position.visible { return Ok(false); }
+        if position.handle_id != shape.handle_id {
+            return Err(ConnectionError::CursorCapture(std::io::Error::new(std::io::ErrorKind::WouldBlock, "cursor changed while sampling")));
+        }
+        let mut shape = remote_protocol::cursor::CursorShape { id: 0, hotx: shape.hotx, hoty: shape.hoty,
+            width: shape.width, height: shape.height, rgba: shape.rgba };
+        shape.id = shape.source_content_id().map_err(ConnectionError::Cursor)?;
+        let shape = Envelope::cursor_shape_event(&shape).map_err(ConnectionError::Cursor)?.encode(self.max_post_auth_bytes)?;
+        let position = Envelope::cursor_position_event(remote_protocol::cursor::CursorPosition { x: position.x, y: position.y })
+            .encode(self.max_post_auth_bytes)?;
+        self.phase = Phase::Busy;
+        if let Err(error) = self.transport.send(&shape, deadline).await {
+            self.abort(); return Err(ConnectionError::Network(error));
+        }
+        if let Err(error) = self.transport.send(&position, deadline).await {
+            self.abort(); return Err(ConnectionError::Network(error));
+        }
+        self.phase = Phase::Authorized;
+        Ok(true)
     }
     /// Process one input message with the restricted Windows-style dispatchers.
     /// Other messages are explicitly rejected; no full event loop is provided.
