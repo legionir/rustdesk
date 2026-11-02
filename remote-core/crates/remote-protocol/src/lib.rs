@@ -10,6 +10,7 @@
 pub mod cursor;
 /// Existing desktop login response and display metadata.
 pub mod desktop;
+pub mod video_control;
 /// Existing input wire constructors.
 pub mod input;
 
