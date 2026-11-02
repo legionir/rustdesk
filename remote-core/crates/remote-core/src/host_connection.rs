@@ -445,7 +445,10 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
     pub fn restrict_permissions(&mut self, permissions: Permissions) -> Result<(), ConnectionError> {
         if self.phase != Phase::Authorized { return Err(ConnectionError::InvalidState); }
         match self.host.restrict_permissions(permissions) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                if !self.host.permissions().view_screen { self.cursor_cache.take(); self.initial_decoding.take(); }
+                Ok(())
+            },
             Err(e) => { self.abort(); Err(ConnectionError::Host(e)) },
         }
     }

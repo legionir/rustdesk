@@ -144,3 +144,11 @@ are granted; this cannot faithfully express split permissions, and announcing a
 value does not change the local authorization guard. The view-only Node host
 announces false after login. The viewer returns notices as untrusted events.
 This code and its deferred cases have not been built or run.
+
+The host can now surface the source `request_cursor_data` message and resend a
+bounded, previously sampled Windows cursor shape on an explicit caller action.
+It never implicitly answers requests; caller-side authorization and rate
+limiting remain required. Revoking screen view discards the cache. Cached IDs
+are non-cryptographic and may collide; no OS-wide cursor visibility or hidden
+cursor behavior is guaranteed. The wire/authorization cases and Windows GDI
+sampling are unbuilt and untested.

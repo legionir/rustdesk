@@ -246,8 +246,12 @@ async fn video_controls_reach_authorized_scheduler_but_are_not_executed() {
         },
         _ => panic!("expected decoding advertisement"),
     }
+    let (sent, received) = tokio::join!(viewer.request_cursor_shape(u64::MAX, WAIT), host.receive_event(WAIT));
+    sent.unwrap(); assert_eq!(received.unwrap(), HostEvent::CursorShapeRequest(u64::MAX));
+    assert!(!host.send_cached_cursor(u64::MAX, WAIT).await.unwrap());
     host.restrict_permissions(Permissions::default()).unwrap();
     let (sent, received) = tokio::join!(viewer.send_video_control(VideoControl::RefreshAll, WAIT), host.receive_event(WAIT));
     sent.unwrap(); assert!(received.is_err());
+    assert!(host.send_cached_cursor(u64::MAX, WAIT).await.is_err());
     viewer.close(); host.close().unwrap();
 }
