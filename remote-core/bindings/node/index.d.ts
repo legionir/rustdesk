@@ -66,6 +66,10 @@ export interface ViewerMessage {
 export class Viewer {
   peerInfo(): ViewerPeerInfo;
   sendMouse(mask: number, x: number, y: number, timeoutMs: number): Promise<void>;
+  /** Uses RustDesk ControlKey numeric values, not Windows VK codes. */
+  sendControlKey(controlKey: number, down: boolean, press: boolean, modifiers: number[], timeoutMs: number): Promise<void>;
+  sendText(text: string, timeoutMs: number): Promise<void>;
+  sendMouseWithModifiers(mask: number, x: number, y: number, modifiers: number[], timeoutMs: number): Promise<void>;
   /** Timeout closes the connection. Calls on one Viewer cannot overlap. */
   receive(timeoutMs: number): Promise<ViewerMessage>;
   close(): void;

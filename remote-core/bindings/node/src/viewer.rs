@@ -111,6 +111,34 @@ impl Viewer {
         let lease = BusyLease::acquire(&self.state)?;
         Ok(AsyncTask::new(SendMouseTask { state: self.state.clone(), _busy: lease, event: MouseEvent { mask, x, y }, deadline }))
     }
+    /// Send a legacy source control-key message. The host must independently
+    /// authorize and support this key and the supplied source modifier values.
+    #[napi]
+    pub fn send_control_key(&self, control_key: i32, down: bool, press: bool, modifiers: Vec<i32>, timeout_ms: u32) -> Result<AsyncTask<SendWireInputTask>> {
+        let deadline = wait(timeout_ms)?;
+        let event = Envelope::legacy_keyboard_event(remote_protocol::input::LegacyKey::ControlKey(control_key), down, press, &modifiers).map_err(js_error)?;
+        let wire = event.encode(8192).map_err(js_error)?;
+        let lease = BusyLease::acquire(&self.state)?;
+        Ok(AsyncTask::new(SendWireInputTask { state: self.state.clone(), _busy: lease, wire, deadline }))
+    }
+    /// Send bounded legacy text. JS and protobuf may retain copies of the text.
+    #[napi]
+    pub fn send_text(&self, text: String, timeout_ms: u32) -> Result<AsyncTask<SendWireInputTask>> {
+        let deadline = wait(timeout_ms)?;
+        let event = Envelope::legacy_keyboard_event(remote_protocol::input::LegacyKey::Sequence(&text), false, false, &[]).map_err(js_error)?;
+        let wire = event.encode(8192).map_err(js_error)?;
+        let lease = BusyLease::acquire(&self.state)?;
+        Ok(AsyncTask::new(SendWireInputTask { state: self.state.clone(), _busy: lease, wire, deadline }))
+    }
+    /// Send a source mouse event with explicitly supplied source modifier values.
+    #[napi]
+    pub fn send_mouse_with_modifiers(&self, mask: i32, x: i32, y: i32, modifiers: Vec<i32>, timeout_ms: u32) -> Result<AsyncTask<SendWireInputTask>> {
+        let deadline = wait(timeout_ms)?;
+        let event = Envelope::mouse_event_with_modifiers(MouseEvent { mask, x, y }, &modifiers).map_err(js_error)?;
+        let wire = event.encode(8192).map_err(js_error)?;
+        let lease = BusyLease::acquire(&self.state)?;
+        Ok(AsyncTask::new(SendWireInputTask { state: self.state.clone(), _busy: lease, wire, deadline }))
+    }
     /// Receive one message on a worker. Receive timeout closes the connection.
     #[napi]
     pub fn receive(&self, timeout_ms: u32) -> Result<AsyncTask<ReceiveTask>> {
@@ -182,6 +210,18 @@ impl Task for SendMouseTask {
         let mut lock = self.state.viewer.lock().map_err(|_| Error::from_reason("viewer state poisoned"))?;
         let viewer = lock.as_mut().ok_or_else(|| Error::from_reason("viewer is closed"))?;
         runtime()?.block_on(viewer.send_input(&Envelope::mouse_event(self.event), self.deadline)).map_err(js_error)
+    }
+    fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
+}
+pub struct SendWireInputTask { state: Arc<ViewerState>, _busy: BusyLease, wire: Vec<u8>, deadline: Duration }
+impl Task for SendWireInputTask {
+    type Output = ();
+    type JsValue = ();
+    fn compute(&mut self) -> Result<()> {
+        let event = Envelope::decode(&self.wire, 8192).map_err(js_error)?;
+        let mut lock = self.state.viewer.lock().map_err(|_| Error::from_reason("viewer state poisoned"))?;
+        let viewer = lock.as_mut().ok_or_else(|| Error::from_reason("viewer is closed"))?;
+        runtime()?.block_on(viewer.send_input(&event, self.deadline)).map_err(js_error)
     }
     fn resolve(&mut self, _: Env, _: ()) -> Result<()> { Ok(()) }
 }

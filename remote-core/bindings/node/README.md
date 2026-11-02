@@ -76,7 +76,11 @@ it with untrusted peers.
 
 `peerInfo()` returns a login snapshot; `sendMouse()` sends a limited wire event;
 `receive()` returns one event (video remains compressed in a RustDesk envelope).
-There is no keyboard API, video decoder or renderer yet. A viewer permits only
+`sendControlKey`, `sendText` and `sendMouseWithModifiers` construct source
+legacy wire events, but the host may reject them; its tracked-modifier mode is
+opt-in and its text support is restricted. Control-key numbers are RustDesk
+schema values, not Windows virtual-key codes. There is no video decoder or
+renderer yet. A viewer permits only
 one active operation at a time; therefore a long receive blocks input sends and
 a receive timeout closes the connection. Close explicitly when idle. At most
 eight viewer objects/tasks are retained by this addon, including explicitly
