@@ -53,7 +53,10 @@ jobs:
           lines = [line for line in lines if len(line) < 1000]
           starts = [i for i, line in enumerate(lines) if line.startswith(("error[", "error:"))]
           blocks = ["\n".join(lines[i:min(i + 18, starts[n + 1] if n + 1 < len(starts) else len(lines))])[:3000]
-                    for n, i in enumerate(starts)] or ["\n".join(lines[-30:])[-3000:]]
+                    for n, i in enumerate(starts)]
+          # Test failures report assertion details before the final `error:`.
+          tail = "\n".join(lines[-100:])[-12000:]
+          blocks.extend(tail[i:i + 2500] for i in range(0, len(tail), 2500))
           for text in blocks:
               text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
               print("::error::" + text)
@@ -144,7 +147,10 @@ jobs:
           lines = [line for line in lines if len(line) < 1000]
           starts = [i for i, line in enumerate(lines) if line.startswith(("error[", "error:"))]
           blocks = ["\n".join(lines[i:min(i + 18, starts[n + 1] if n + 1 < len(starts) else len(lines))])[:3000]
-                    for n, i in enumerate(starts)] or ["\n".join(lines[-30:])[-3000:]]
+                    for n, i in enumerate(starts)]
+          # Test failures report assertion details before the final `error:`.
+          tail = "\n".join(lines[-100:])[-12000:]
+          blocks.extend(tail[i:i + 2500] for i in range(0, len(tail), 2500))
           for text in blocks:
               text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
               print("::error::" + text)
