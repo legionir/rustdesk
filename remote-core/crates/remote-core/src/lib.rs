@@ -66,6 +66,8 @@ pub mod video_preferences;
 pub mod display_selection;
 /// Construct bounded metadata from explicitly enumerated display handles.
 pub mod display_metadata;
+/// Per-session source-style display update bookkeeping; no automatic I/O.
+pub mod display_delivery;
 /// Source-style cursor-follow display hints, without side effects.
 pub mod cursor_follow;
 /// Source-style bounded cursor echo exclusion bookkeeping.
