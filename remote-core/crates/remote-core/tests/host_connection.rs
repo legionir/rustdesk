@@ -984,3 +984,45 @@ async fn windows_session_claims_are_bounded_and_selection_is_wire_only() {
     viewer.close(); assert!(viewer.windows_sessions().is_none());
     assert!(viewer.platform_additions().is_none());
 }
+
+#[tokio::test]
+async fn tracked_display_updates_are_session_bound_coalesced_and_view_only() {
+    use remote_core::{display_delivery::DisplayDelivery, viewer_connection::ViewerEvent};
+    use remote_protocol::desktop::DisplayInfo;
+    let (mut host, mut viewer, _action, id) = cursor_fault_session().await;
+    let display = DisplayInfo { x: -10, y: 0, width: 100, height: 100, name: "test".into(), online: true, cursor_embedded: false, scale: 1.0 };
+    let mut book = DisplayDelivery::new(id);
+    assert!(!host.send_tracked_display_update(&mut book, WAIT).await.unwrap());
+    book.observe(&[display.clone()]).unwrap();
+    let mut wrong = DisplayDelivery::new(SessionId::new([94; 16]).unwrap());
+    wrong.observe(&[display.clone()]).unwrap();
+    assert!(host.send_tracked_display_update(&mut wrong, WAIT).await.is_err());
+    assert!(!wrong.is_poisoned());
+    let (sent, received) = tokio::join!(host.send_tracked_display_update(&mut book, WAIT), viewer.receive(WAIT));
+    assert!(sent.unwrap());
+    assert!(matches!(received.unwrap(), ViewerEvent::PeerInfo(value) if value.displays == [display.clone()]));
+    assert!(!host.send_tracked_display_update(&mut book, WAIT).await.unwrap());
+    book.observe(&[]).unwrap();
+    host.restrict_permissions(Permissions::default()).unwrap();
+    assert!(host.send_tracked_display_update(&mut book, WAIT).await.is_err());
+    assert!(!book.is_poisoned());
+    host.close().unwrap(); viewer.close();
+}
+
+#[tokio::test]
+async fn tracked_display_update_failure_and_cancellation_do_not_retry() {
+    use remote_core::display_delivery::DisplayDelivery;
+    use std::sync::atomic::Ordering;
+    let (mut host, mut viewer, action, id) = cursor_fault_session().await;
+    let mut book = DisplayDelivery::new(id); book.observe(&[]).unwrap();
+    action.store(1, Ordering::Release);
+    assert!(host.send_tracked_display_update(&mut book, WAIT).await.is_err());
+    assert!(book.is_poisoned()); assert_eq!(host.state(), SessionState::Closed);
+    viewer.close();
+    let (mut host, mut viewer, action, id) = cursor_fault_session().await;
+    let mut book = DisplayDelivery::new(id); book.observe(&[]).unwrap();
+    action.store(2, Ordering::Release);
+    assert!(tokio::time::timeout(Duration::from_millis(10), host.send_tracked_display_update(&mut book, WAIT)).await.is_err());
+    assert!(book.is_poisoned());
+    host.close().unwrap(); viewer.close();
+}

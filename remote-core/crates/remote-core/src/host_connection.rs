@@ -96,6 +96,8 @@ pub enum ConnectionError {
     Capture(CapturePumpError),
     Mouse(windows_mouse::DispatchError),
     Keyboard(windows_keyboard::DispatchError),
+    /// Per-session display update bookkeeping failed.
+    DisplayDelivery(crate::display_delivery::DisplayDeliveryError),
     /// Cursor wire validation/compression failed.
     Cursor(remote_protocol::cursor::CursorError),
     /// Explicit per-session cursor delivery bookkeeping failure.
@@ -150,6 +152,7 @@ impl fmt::Display for ConnectionError {
             Self::Capture(e) => write!(f, "capture: {e}"),
             Self::Mouse(e) => write!(f, "mouse: {e}"),
             Self::Keyboard(e) => write!(f, "keyboard: {e}"),
+            Self::DisplayDelivery(e) => write!(f, "display delivery: {e}"),
             Self::Cursor(e) => write!(f, "cursor protocol: {e}"),
             Self::CursorDelivery(e) => write!(f, "cursor delivery: {e}"),
             Self::TrackedModifier(e) => write!(f, "tracked modifier dispatch: {e}"),
@@ -927,6 +930,31 @@ impl<T: NetworkTransport, B: InputBackend> HostConnection<T, B> {
         self.phase = Phase::Busy;
         if let Err(error) = self.transport.send(&wire, deadline).await { self.abort(); return Err(ConnectionError::Network(error)); }
         self.phase = Phase::Authorized; Ok(())
+    }
+    /// Send the latest changed display subset using one per-session book.
+    /// Caller must exclusively use this book for these updates, observe fresh
+    /// approved snapshots, and coordinate capture/decoder reset and consent.
+    /// A successful local send does not prove peer receipt. Cancellation leaves
+    /// the connection Busy and the book poisoned; close/drop both, never retry
+    /// an uncertain update on the connection. No native sampling is performed.
+    pub async fn send_tracked_display_update(&mut self, book: &mut crate::display_delivery::DisplayDelivery,
+        deadline: Duration) -> Result<bool, ConnectionError> {
+        if self.phase != Phase::Authorized || deadline.is_zero() || !self.host.permissions().view_screen
+            || !matches!(self.host.state(), SessionState::Connected | SessionState::Streaming)
+            || book.session_id() != self.session_id() { return Err(ConnectionError::InvalidState); }
+        let pending = match book.prepare().map_err(ConnectionError::DisplayDelivery)? {
+            Some(pending) => pending, None => return Ok(false),
+        };
+        let wire = match Envelope::desktop_peer_info_event(pending.info()).map_err(ConnectionError::Desktop)
+            .and_then(|message| message.encode(self.max_post_auth_bytes).map_err(ConnectionError::Protocol)) {
+            Ok(wire) => Zeroizing::new(wire),
+            Err(error) => { pending.discard_before_send(); return Err(error); },
+        };
+        self.phase = Phase::Busy;
+        if let Err(error) = self.transport.send(&wire, deadline).await {
+            self.abort(); return Err(ConnectionError::Network(error));
+        }
+        pending.sent(); self.phase = Phase::Authorized; Ok(true)
     }
     /// Send a bounded standalone source PeerInfo update. Caller supplies an
     /// approved current snapshot and coordinates capture/decoder refresh. This
