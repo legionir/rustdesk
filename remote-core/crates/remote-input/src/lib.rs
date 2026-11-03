@@ -870,3 +870,8 @@ mod movement_failure_tests {
 #[cfg(test)]
 #[path = "../../../vendor/enigo/src/win/safe_error.rs"]
 mod forked_enigo_error_tests;
+
+// Exercise synchronization with threads without generating any input events.
+#[cfg(test)]
+#[path = "../../../vendor/enigo/src/win/layout_cache.rs"]
+mod forked_enigo_layout_tests;
