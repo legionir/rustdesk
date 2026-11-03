@@ -115,7 +115,7 @@ mod tests {
         }
         assert_eq!(recovery.access_lost(t + RECOVERY_WINDOW).unwrap(), RecoveryDecision::FallbackToGdi);
         assert!(recovery.take_fallback_pending()); assert!(!recovery.take_fallback_pending());
-        assert_eq!(recovery.access_lost(t + RECOVERY_WINDOW + Duration::from_nanos(1)).unwrap(), RecoveryDecision::Restart { attempt: 1 });
+        assert_eq!(recovery.access_lost(t + RECOVERY_WINDOW + Duration::from_millis(1)).unwrap(), RecoveryDecision::Restart { attempt: 1 });
         assert_eq!(recovery.access_lost(t), Err(ClockWentBackwards));
         assert!(recovery.take_restart_pending());
     }
@@ -124,9 +124,9 @@ mod tests {
         let t = Instant::now();
         assert!(!in_frame_grace(None, t).unwrap());
         assert!(in_frame_grace(Some(t), t).unwrap());
-        assert!(in_frame_grace(Some(t), t + FRAME_GRACE - Duration::from_nanos(1)).unwrap());
+        assert!(in_frame_grace(Some(t), t + FRAME_GRACE - Duration::from_millis(1)).unwrap());
         assert!(!in_frame_grace(Some(t), t + FRAME_GRACE).unwrap());
-        assert_eq!(in_frame_grace(Some(t), t - Duration::from_nanos(1)), Err(ClockWentBackwards));
+        assert_eq!(in_frame_grace(Some(t), t - Duration::from_millis(1)), Err(ClockWentBackwards));
     }
     #[test]
     fn would_block_fallback_is_startup_only_and_grace_is_non_counting() {

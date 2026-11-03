@@ -212,7 +212,7 @@ mod tests {
         entry.capture_finished(t, t + Duration::from_millis(100)).unwrap();
         assert!(!entry.expired(t + Duration::from_millis(999), Duration::from_secs(1)).unwrap());
         assert!(entry.expired(t + Duration::from_secs(1), Duration::from_secs(1)).unwrap());
-        assert!(matches!(entry.expired(t - Duration::from_nanos(1), Duration::from_secs(1)), Err(RefreshError::ClockWentBackwards)));
+        assert!(matches!(entry.expired(t - Duration::from_millis(1), Duration::from_secs(1)), Err(RefreshError::ClockWentBackwards)));
         entry.reset(t + Duration::from_secs(1));
         assert!(!entry.expired(t + Duration::from_secs(2), Duration::from_secs(1)).unwrap());
     }

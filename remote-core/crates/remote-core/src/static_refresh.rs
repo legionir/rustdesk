@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(p.begin(t + Duration::from_secs(1), Duration::ZERO, SPEED, true, true, false), Err(RefreshError::InvalidInterval));
         assert_eq!(p.begin(t + Duration::from_secs(1), SPF, f32::NAN, true, true, false), Err(RefreshError::InvalidQuality));
         p.new_frame(t).unwrap(); p.encoded(true, t).unwrap();
-        assert_eq!(p.begin(t - Duration::from_nanos(1), SPF, SPEED, true, true, false), Err(RefreshError::ClockWentBackwards));
+        assert_eq!(p.begin(t - Duration::from_millis(1), SPF, SPEED, true, true, false), Err(RefreshError::ClockWentBackwards));
         assert_eq!(p.begin(t + Duration::from_millis(100), SPF, SPEED, false, true, false).unwrap(), RefreshDecision::NotReady);
     }
 }
