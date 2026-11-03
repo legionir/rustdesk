@@ -49,11 +49,9 @@ fn to_absolute(v: i32, origin: i32, extent: i32) -> Option<i32> {
 
 fn keybd_event(mut flags: u32, vk: u16, scan: u16) -> DWORD {
     let mut scan = scan;
-    unsafe {
-        // https://github.com/rustdesk/rustdesk/issues/366
-        if scan == 0 {
-            scan = LAYOUT.map_scan(vk);
-        }
+    // https://github.com/rustdesk/rustdesk/issues/366
+    if scan == 0 {
+        scan = LAYOUT.map_scan(vk);
     }
 
     if flags & KEYEVENTF_UNICODE == 0 {
