@@ -35,3 +35,20 @@ Hosted CI does not exercise a real interactive Windows desktop, input injection,
 real GPU capture, two physical systems, or all feature combinations. It is not
 security, protocol or license validation. The unresolved Windows Enigo safety
 gate remains in force and extraction remains incomplete.
+
+## Windows movement and Unicode candidate
+
+GitHub Actions [run 41642242860](https://github.com/legionir/rustdesk/actions/runs/41642242860)
+completed successfully for commit `4509399d0b7e0d87ffc83e7c28b5c362870bbe3b`:
+Linux capture/codec, Windows capture/codec, and local transport on Linux and
+Windows passed, including the Node addon and exported-source candidate steps.
+The added wheel and Unicode sequencing tests use fake senders; they do not
+inject Windows input or prove delivery. No interactive desktop, deliberate
+native SendInput failure, independent security review, or two-system test was
+performed. The Windows input gate remains open.
+
+The committed candidate exported to `/home/user/remote-core-mouse-unicode-20261103`
+with 471 hashed files; manifest verification and the limited path auditor
+accepted 16 manifests and 44 edges. These checks do not establish authenticity,
+license clearance, dependency closure, or independent-product readiness. Eleven
+Python exporter/auditor tests passed locally; Cargo was unavailable locally.
