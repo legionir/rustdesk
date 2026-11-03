@@ -84,6 +84,17 @@ candidate's inherited lockfile has not been resolved for the extracted
 workspace. A fork must retain required functionality and pin/review its actual
 resolved graph; the current static path audit does not check those Git sources.
 
+## Additional read-only native test plan (2026-11-03)
+
+The fork now contains Windows-only tests that call its actual bounded system
+error formatter after setting a controlled thread-local Windows error, and
+call `FormatMessageW` with guarded buffers and test strings at the capacity
+boundary. Concurrent threads also call the fork's actual synchronized native
+layout lookup helpers; they do not call `SendInput`. These fixtures have been
+written but their outcome must be taken from the subsequent CI run. They do
+not simulate focus changes, prove delivery, test UIPI or exercise intentional
+SendInput failure, and are not a substitute for memory-safety tooling or review.
+
 ## Candidate fork (not a gate clearance)
 
 `remote-core/vendor/enigo` was copied from the exact RustDesk baseline above,
@@ -106,8 +117,9 @@ recovered because the protected value is just an opaque handle.
 The pure formatting tests are compiled into `remote-input` without Windows
 input side effects, covering zero, maximal-fitting and invalid counts, trimming
 and malformed UTF-16. Separate synthetic threaded tests exercise the exact
-layout-cache mutex and poison recovery without input injection. These do not
-exercise the real `FormatMessageW`, native layout APIs or OS input concurrency. The original Enigo still exists in the candidate source for provenance;
+layout-cache mutex and poison recovery without input injection. The earlier CI run did not exercise the real `FormatMessageW`, native layout
+APIs or OS input concurrency. See the additional test plan above. The original
+Enigo still exists in the candidate source for provenance;
 other consumers must not accidentally depend on it. The copy retains unpinned
 upstream Git declarations, and no lockfile or license clearance is implied.
 CI run [41572283211](https://github.com/legionir/rustdesk/actions/runs/41572283211)
