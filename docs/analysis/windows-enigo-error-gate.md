@@ -173,3 +173,9 @@ human/other-process input and can itself affect those keys. In particular,
 Windows Enigo release calls still hide some native failures, so this policy
 cannot establish that the OS released anything. New tests use fake backends;
 real Windows validation and review remain required before use.
+
+The no-immediate-retry rule above is limited to `InputController`'s failing
+release call. The enclosing `HostConnection` aborts on detected dispatch
+failure and calls host `close`, which may retry the retained release immediately;
+`Drop` can also retry. Neither retry is proof of safety when OS state is
+uncertain, and consumers must review this composition before using input.
