@@ -158,3 +158,18 @@ could have uncertain effects, `key_up` cannot report failure, pre-existing key
 state is not reconciled, and unwinding/panic or process termination can still
 interrupt cleanup. Its tests and native validation must be reported separately;
 the Windows input safety gate remains open.
+
+## Controller cleanup on detectable release failures
+
+The per-session `InputController` previously closed on an explicit key/button
+release failure without immediately attempting to release other tracked inputs.
+It now attempts the other tracked releases once while retaining the failing
+record, and a failed permission-revocation pass also cleans categories that
+were previously still allowed. Failed cleanup records remain for `close` or
+best-effort `Drop`; the first error is returned. This is an explicit local
+fail-closed policy, not exact RustDesk compatibility, and it assumes the owner
+has authority over the tracked inputs. It cannot protect against concurrent
+human/other-process input and can itself affect those keys. In particular,
+Windows Enigo release calls still hide some native failures, so this policy
+cannot establish that the OS released anything. New tests use fake backends;
+real Windows validation and review remain required before use.
