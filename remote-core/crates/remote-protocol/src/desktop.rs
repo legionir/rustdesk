@@ -99,7 +99,59 @@ fn encode_peer(info: &PeerInfo) -> Result<message_proto::PeerInfo, DesktopError>
         version: info.version.clone(), displays, current_display: info.current_display, sas_enabled: info.sas_enabled,
         encoding, ..Default::default() })
 }
+/// Source display original-resolution claim. Zero by zero is used for
+/// RustDesk virtual displays; absence and zero are distinct wire values. This
+/// is untrusted metadata, not proof of a physical mode or permission to change it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OriginalResolution { pub width: i32, pub height: i32 }
+fn valid_original(value: OriginalResolution) -> bool {
+    (value.width == 0 && value.height == 0) || ((1..=MAX_DISPLAY_DIMENSION).contains(&value.width) && (1..=MAX_DISPLAY_DIMENSION).contains(&value.height))
+}
+pub(crate) fn peer_ref(envelope: &Envelope) -> Result<&message_proto::PeerInfo, DesktopError> {
+    match envelope.inner.union.as_ref() {
+        Some(message::Union::PeerInfo(peer)) => Ok(peer),
+        Some(message::Union::LoginResponse(response)) => match response.union.as_ref() {
+            Some(message_proto::login_response::Union::PeerInfo(peer)) => Ok(peer),
+            _ => Err(DesktopError::UnexpectedMessage),
+        },
+        _ => Err(DesktopError::UnexpectedMessage),
+    }
+}
+pub(crate) fn peer_mut(envelope: &mut Envelope) -> Result<&mut message_proto::PeerInfo, DesktopError> {
+    match envelope.inner.union.as_mut() {
+        Some(message::Union::PeerInfo(peer)) => Ok(peer),
+        Some(message::Union::LoginResponse(response)) => match response.union.as_mut() {
+            Some(message_proto::login_response::Union::PeerInfo(peer)) => Ok(peer),
+            _ => Err(DesktopError::UnexpectedMessage),
+        },
+        _ => Err(DesktopError::UnexpectedMessage),
+    }
+}
 impl Envelope {
+    /// Read bounded source `original_resolution` claims for each display from
+    /// a login response or standalone PeerInfo. The complete original envelope
+    /// retains other protobuf fields. A nonzero pair must have both dimensions.
+    pub fn display_original_resolutions(&self) -> Result<Vec<Option<OriginalResolution>>, DesktopError> {
+        let peer = peer_ref(self)?;
+        if peer.displays.len() > MAX_DISPLAYS { return Err(DesktopError::InvalidMetadata); }
+        peer.displays.iter().map(|display| {
+            let value = display.original_resolution.as_ref().map(|r| OriginalResolution { width: r.width, height: r.height });
+            if value.map_or(false, |v| !valid_original(v)) { return Err(DesktopError::InvalidMetadata); }
+            Ok(value)
+        }).collect()
+    }
+    /// Set original-resolution claims without rebuilding the peer info or
+    /// dropping unrelated fields. Validate the entire list before mutating;
+    /// the trusted caller supplies actual consented metadata. No OS changes.
+    pub fn set_display_original_resolutions(&mut self, values: &[Option<OriginalResolution>]) -> Result<(), DesktopError> {
+        let peer = peer_mut(self)?;
+        if peer.displays.len() > MAX_DISPLAYS || values.len() != peer.displays.len()
+            || values.iter().flatten().any(|v| !valid_original(*v)) { return Err(DesktopError::InvalidMetadata); }
+        for (display, value) in peer.displays.iter_mut().zip(values) {
+            display.original_resolution = value.map(|v| message_proto::Resolution { width: v.width, height: v.height, ..Default::default() }).into();
+        }
+        Ok(())
+    }
     /// Inspect an existing login response. Metadata remains an untrusted claim.
     pub fn desktop_login_result(&self) -> Result<LoginResult, DesktopError> {
         let response = match self.inner.union.as_ref() { Some(message::Union::LoginResponse(response)) => response, _ => return Err(DesktopError::UnexpectedMessage) };
@@ -145,6 +197,21 @@ mod tests {
         assert_eq!(Envelope::decode(&encoded, 4096).unwrap().desktop_login_result().unwrap(), LoginResult::Accepted(original));
         let denied = Envelope::desktop_login_error("denied").unwrap();
         assert_eq!(denied.desktop_login_result().unwrap(), LoginResult::Denied("denied".into()));
+    }
+    #[test]
+    fn original_resolution_round_trip_and_atomic_rejection() {
+        let peer = info(); let mut message = Envelope::desktop_login_success(&peer).unwrap();
+        assert_eq!(message.display_original_resolutions().unwrap(), vec![None]);
+        let original = OriginalResolution { width: 1920, height: 1080 };
+        message.set_display_original_resolutions(&[Some(original)]).unwrap();
+        assert!(message.set_display_original_resolutions(&[Some(OriginalResolution { width: 1, height: 0 })]).is_err());
+        assert!(message.set_display_original_resolutions(&[]).is_err());
+        let wire = message.encode(4096).unwrap(); let mut decoded = Envelope::decode(&wire, 4096).unwrap();
+        assert_eq!(decoded.display_original_resolutions().unwrap(), vec![Some(original)]);
+        assert_eq!(decoded.desktop_login_result().unwrap(), LoginResult::Accepted(peer));
+        decoded.set_display_original_resolutions(&[Some(OriginalResolution { width: 0, height: 0 })]).unwrap();
+        assert_eq!(decoded.display_original_resolutions().unwrap()[0].unwrap().width, 0);
+        assert!(Envelope::desktop_login_error("denied").unwrap().display_original_resolutions().is_err());
     }
     #[test]
     fn validates_geometry_and_untrusted_strings() {

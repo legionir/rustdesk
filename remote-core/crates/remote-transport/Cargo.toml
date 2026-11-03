@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-tokio = { version = "1.44", features = ["sync", "time"] }
+tokio = { version = "1.44", features = ["sync", "time", "macros"] }
 
 [dev-dependencies]
 tokio = { version = "1.44", features = ["macros", "rt", "sync", "time"] }

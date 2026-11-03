@@ -16,7 +16,10 @@ use std::{io, time::Duration};
 /// The capture/encoder pair is taken while a send is in flight, so cancellation
 /// discards it and requires recreation plus decoder resynchronization.
 pub struct VramVideoPump {
-    capture: Option<VramCapture>, session_id: SessionId,
+    capture: Option<VramCapture>,
+    // Declared after capture so the native pair drops before accounting.
+    lease: Option<crate::capture_budget::CaptureLease>,
+    session_id: SessionId,
     display_index: i32, max_envelope: usize, stopped: bool,
 }
 impl VramVideoPump {
@@ -31,7 +34,22 @@ impl VramVideoPump {
             return Err(CapturePumpError::InvalidFrame("invalid display index or envelope limit"));
         }
         let capture = VramCapture::open(display, codec, quality, keyframe_interval).map_err(CapturePumpError::Capture)?;
-        Ok(Self { capture: Some(capture), session_id: host.id(), display_index, max_envelope, stopped: false })
+        Ok(Self { capture: Some(capture), lease: None, session_id: host.id(), display_index, max_envelope, stopped: false })
+    }
+    /// Reserve configured pixel area before native capture/encoder opening.
+    /// This does not measure VRAM, native buffers, GPU load or other processes.
+    /// The lease remains until the pump is dropped, even after stop or failure.
+    pub fn open_budgeted<B: InputBackend>(host: &HostInputSession<B>, display: Display, display_index: i32,
+        codec: VramCodec, quality: f32, keyframe_interval: Option<usize>, max_envelope: usize,
+        budget: &crate::capture_budget::CaptureBudget) -> Result<Self, CapturePumpError> {
+        if !matches!(host.state(), SessionState::Connected | SessionState::Streaming) || !host.permissions().view_screen {
+            return Err(CapturePumpError::NotAuthorized);
+        }
+        let width = u32::try_from(display.info().width).map_err(|_| CapturePumpError::InvalidFrame("display width overflow"))?;
+        let height = u32::try_from(display.info().height).map_err(|_| CapturePumpError::InvalidFrame("display height overflow"))?;
+        let lease = budget.reserve(&[(width, height)]).map_err(CapturePumpError::Budget)?;
+        let mut pump = Self::open(host, display, display_index, codec, quality, keyframe_interval, max_envelope)?;
+        pump.lease = Some(lease); Ok(pump)
     }
     pub fn start<B: InputBackend>(&self, host: &mut HostInputSession<B>) -> Result<(), CapturePumpError> {
         if self.stopped || host.id() != self.session_id || self.capture.is_none() { return Err(CapturePumpError::NotAuthorized); }

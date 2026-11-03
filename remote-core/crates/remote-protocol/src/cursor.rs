@@ -17,7 +17,7 @@ pub const MAX_CACHE_ITEMS: usize = 512;
 
 /// Cursor shape data as decoded RGBA. IDs are 64-bit and should be exposed to
 /// JavaScript as decimal strings, not numbers, to avoid precision loss.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CursorShape {
     pub id: u64,
     pub hotx: i32,
@@ -25,6 +25,12 @@ pub struct CursorShape {
     pub width: i32,
     pub height: i32,
     pub rgba: Vec<u8>,
+}
+impl fmt::Debug for CursorShape {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CursorShape").field("id", &self.id).field("hotx", &self.hotx).field("hoty", &self.hoty)
+            .field("width", &self.width).field("height", &self.height).field("rgba_bytes", &self.rgba.len()).finish()
+    }
 }
 /// A position in the coordinates supplied by the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

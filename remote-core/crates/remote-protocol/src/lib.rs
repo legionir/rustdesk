@@ -8,15 +8,38 @@
 
 /// Cursor wire messages and bounded decoded-shape cache.
 pub mod cursor;
+/// Source cursor and window following preferences.
+pub mod cursor_preferences;
 /// Existing desktop login response and display metadata.
 pub mod desktop;
+/// Existing two-factor authentication wire fields, not authentication policy.
+pub mod two_factor;
 pub mod video_control;
+/// Existing quality and frame-rate preference fields.
+pub mod video_preferences;
+/// Existing peer-controlled close reason message.
+pub mod close_reason;
 /// Existing display-switch and multi-display subscription messages.
 pub mod display_control;
+/// Wire-only sensitive display requests; no OS action or authorization.
+pub mod sensitive_display;
+/// Limited-lifetime wrapper for source login proof.
+pub mod sensitive_login;
+pub mod sensitive_input;
+/// Existing source supported-mode and display original-resolution metadata.
+pub mod resolution_metadata;
+/// Existing Windows session selection wire fields; no OS switching.
+pub mod windows_sessions;
+/// Source peer feature and platform-addition claims; no OS actions.
+pub mod platform_metadata;
 /// Source permission notification fields.
 pub mod permissions;
 /// Existing input wire constructors.
 pub mod input;
+/// Existing source input-related option, never a grant.
+pub mod input_preferences;
+/// Existing touch/pointer device wire events.
+pub mod pointer;
 
 use base::message_proto::{self, message, misc, video_frame, Message};
 use hbb_common::protobuf::Message as ProtobufMessage;
@@ -73,6 +96,8 @@ pub enum MessageKind {
     Cursor,
     /// Keyboard input.
     Keyboard,
+    /// Touch or other source pointer-device input.
+    Pointer,
     /// Login and related authorization messages.
     Authentication,
     /// Latency/liveness probe.
@@ -114,6 +139,7 @@ impl Envelope {
             Some(message::Union::MouseEvent(_)) => MessageKind::Mouse,
             Some(message::Union::CursorData(_)) | Some(message::Union::CursorPosition(_)) | Some(message::Union::CursorId(_)) => MessageKind::Cursor,
             Some(message::Union::KeyEvent(_)) => MessageKind::Keyboard,
+            Some(message::Union::PointerDeviceEvent(_)) => MessageKind::Pointer,
             Some(message::Union::LoginRequest(_)) | Some(message::Union::LoginResponse(_))
             | Some(message::Union::Hash(_)) | Some(message::Union::Auth2fa(_))
             | Some(message::Union::PublicKey(_)) | Some(message::Union::SignedId(_)) => MessageKind::Authentication,
@@ -205,6 +231,15 @@ impl Envelope {
         let mut inner = Message::new(); inner.set_misc(misc);
         Self { inner }
     }
+    /// Construct the existing source encoder capability update. These are
+    /// caller-supplied claims, not runtime probes or codec negotiation.
+    pub fn supported_encoding_event(value: EncodingCapabilities) -> Self {
+        let encoding = message_proto::SupportedEncoding { vp8: value.vp8, av1: value.av1, h264: value.h264, h265: value.h265,
+            i444: value.i444.map(|c| message_proto::CodecAbility { vp8: c.vp8, vp9: c.vp9, av1: c.av1, h264: c.h264, h265: c.h265, ..Default::default() }).into(),
+            ..Default::default() };
+        let mut misc = message_proto::Misc::new(); misc.set_supported_encoding(encoding);
+        let mut inner = Message::new(); inner.set_misc(misc); Self { inner }
+    }
     /// Inspect the source SupportedEncoding advertisement in a Misc message,
     /// PeerInfo message, or successful LoginResponse. VP9 is implicit in the
     /// source schema and must not be inferred as operational without probing.
@@ -269,6 +304,22 @@ impl Envelope {
         let mut inner = Message::new();
         inner.set_login_request(request);
         Ok(Self { inner })
+    }
+    /// Read the source desktop login's connection-wide video ACK preference.
+    /// This flag is an untrusted scheduling request, not evidence of receipt.
+    pub fn login_video_ack_required(&self) -> Result<bool, ProtocolError> {
+        match self.inner.union.as_ref() {
+            Some(message::Union::LoginRequest(login)) if login.union.is_none() => Ok(login.video_ack_required),
+            _ => Err(ProtocolError::UnexpectedMessage),
+        }
+    }
+    /// Set the existing source flag on a desktop login while preserving all
+    /// other fields. The caller must actually schedule video-received messages.
+    pub fn set_login_video_ack_required(&mut self, required: bool) -> Result<(), ProtocolError> {
+        match self.inner.union.as_mut() {
+            Some(message::Union::LoginRequest(login)) if login.union.is_none() => { login.video_ack_required = required; Ok(()) },
+            _ => Err(ProtocolError::UnexpectedMessage),
+        }
     }
     /// Attach explicitly checked decoder abilities to a constructed login.
     /// Other login options are preserved. This is an untrusted wire claim and
@@ -474,7 +525,7 @@ impl<'a> KeyboardEvent<'a> {
 }
 
 /// Key payload before platform- and layout-specific interpretation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum KeyboardPayload<'a> {
     /// Raw source control-key enum value, which may be unknown.
     ControlKey(i32),
@@ -486,6 +537,19 @@ pub enum KeyboardPayload<'a> {
     Sequence(&'a str),
     /// RustDesk Windows-to-Windows hotkey encoding.
     WindowsHotkey(u32),
+}
+
+// Keystrokes and text may contain credentials. Keep assertion/debug output from
+// automatically printing payload values; this is not memory protection.
+impl fmt::Debug for KeyboardPayload<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kind = match self {
+            Self::ControlKey(_) => "ControlKey", Self::Position(_) => "Position",
+            Self::Unicode(_) => "Unicode", Self::Sequence(_) => "Sequence",
+            Self::WindowsHotkey(_) => "WindowsHotkey",
+        };
+        f.debug_tuple(kind).field(&"[REDACTED]").finish()
+    }
 }
 
 /// Video wire variants supported by the source schema, not a runtime support guarantee.
@@ -525,7 +589,7 @@ impl<'a> VideoFrame<'a> {
 }
 
 /// Owned compressed packet supplied to a RustDesk video envelope.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct OwnedVideoPacket {
     /// Compressed bytes.
     pub data: Vec<u8>,
@@ -533,6 +597,12 @@ pub struct OwnedVideoPacket {
     pub key: bool,
     /// Presentation timestamp in the source protocol's units.
     pub pts: i64,
+}
+
+impl fmt::Debug for OwnedVideoPacket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OwnedVideoPacket").field("bytes", &self.data.len()).field("key", &self.key).field("pts", &self.pts).finish()
+    }
 }
 
 /// Borrowed encoded packet and its RustDesk timing metadata.
@@ -574,6 +644,8 @@ mod tests {
         let caps = parsed.supported_encoding().unwrap();
         assert!(caps.vp8 && caps.h264 && !caps.h265);
         assert!(caps.i444.unwrap().h264);
+        let encoded = Envelope::supported_encoding_event(caps).encode(4096).unwrap();
+        assert_eq!(Envelope::decode(&encoded, 4096).unwrap().supported_encoding().unwrap(), caps);
     }
     #[test]
     fn password_challenge_and_basic_login_round_trip() {

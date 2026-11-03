@@ -9,6 +9,18 @@
 #[cfg(all(target_os = "windows", feature = "vram"))]
 pub mod vram;
 
+/// Read-only foreground-window geometry; explicit local consent required.
+#[cfg(target_os = "windows")]
+pub mod windows_foreground;
+
+/// Read-only current-thread/input desktop name comparison; no switching.
+#[cfg(target_os = "windows")]
+pub mod windows_desktop;
+
+/// Read-only bounded Windows display-mode inspection.
+#[cfg(target_os = "windows")]
+pub mod windows_resolution;
+
 #[cfg(any(target_os = "windows", test))]
 mod cursor_pixels;
 #[cfg(target_os = "windows")]
@@ -137,6 +149,17 @@ impl Texture<'_> {
     pub fn auxiliary(&self) -> usize { self.auxiliary }
 }
 
+/// Explicit acknowledgment that a caller may change the backend of an already
+/// locally authorized Windows capture. This token is not proof of consent or
+/// permission, and never authorizes opening or streaming another display.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+pub struct GdiFallbackOptIn(());
+#[cfg(target_os = "windows")]
+impl GdiFallbackOptIn {
+    pub fn acknowledge_backend_change() -> Self { Self(()) }
+}
+
 /// Capture instance backed by the original RustDesk implementation.
 pub struct Capturer {
     native: scrap::Capturer,
@@ -147,6 +170,23 @@ impl Capturer {
     pub fn width(&self) -> usize { self.native.width() }
     /// Capture height in pixels at backend initialization.
     pub fn height(&self) -> usize { self.native.height() }
+    /// Read the source backend's current GDI flag. The backend may switch
+    /// internally after a failed DXGI/HDR operation; this is a momentary local
+    /// observation, not proof of display identity, consent or a usable frame.
+    #[cfg(target_os = "windows")]
+    pub fn is_gdi(&self) -> bool { self.native.is_gdi() }
+    /// Explicitly ask the source backend to create GDI capture for this exact
+    /// opened display. This does not check current local consent, topology,
+    /// privacy/secure desktop or resource policy; the caller must do so and
+    /// coordinate encoder/keyframe recovery. Switching can change pixel/texture
+    /// behavior and must not be used by the VRAM path. The source reports only
+    /// success/failure, not a detailed error. Already-GDI is a no-op to avoid
+    /// replacing a working GDI instance. There is no automatic retry/reversal.
+    #[cfg(target_os = "windows")]
+    pub fn use_gdi(&mut self, _: GdiFallbackOptIn) -> io::Result<()> {
+        if self.native.is_gdi() || self.native.set_gdi() { Ok(()) }
+        else { Err(io::Error::new(io::ErrorKind::Other, "GDI capture initialization failed")) }
+    }
     /// Obtain a frame. `WouldBlock` and other errors retain backend semantics.
     /// Timeout handling differs between native platforms.
     pub fn frame(&mut self, timeout: Duration) -> io::Result<Frame<'_>> {

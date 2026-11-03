@@ -59,6 +59,9 @@ impl SourceVideoQos {
     fn has_display(&self, id: u32) -> Result<(), QosError> {
         if self.displays.contains(&id) { Ok(()) } else { Err(QosError::InvalidDisplay) }
     }
+    /// Check a locally allocated peer ID without mutating QoS state. This is
+    /// not proof of authorization or that the remote peer remains connected.
+    pub fn require_peer(&self, id: i32) -> Result<(), QosError> { self.has_peer(id) }
     /// Register a unique, locally allocated positive connection ID.
     pub fn add_peer(&mut self, id: i32) -> Result<(), QosError> {
         if id <= 0 { return Err(QosError::InvalidPeer); }
@@ -92,6 +95,19 @@ impl SourceVideoQos {
         if !(1..=120).contains(&fps) { return Err(QosError::InvalidFps); }
         self.qos.user_custom_fps(id, fps); Ok(())
     }
+    /// Apply a legacy source auto-adjust cap after caller authorization.
+    pub fn set_peer_auto_fps(&mut self, id: i32, fps: u32) -> Result<(), QosError> {
+        self.has_peer(id)?;
+        if !(1..=120).contains(&fps) { return Err(QosError::InvalidFps); }
+        self.qos.user_auto_adjust_fps(id, fps); Ok(())
+    }
+    /// Record an untrusted peer's reported recording state for source QoS.
+    /// This cannot establish that recording actually started or stopped.
+    pub fn set_peer_recording_claim(&mut self, id: i32, recording: bool) -> Result<(), QosError> {
+        self.has_peer(id)?; self.qos.user_record(id, recording); Ok(())
+    }
+    /// Whether any registered peer claims to be recording, not an audit fact.
+    pub fn any_peer_claims_recording(&self) -> bool { self.qos.record() }
     /// Pass the existing source ImageQuality enum/custom packed value.
     pub fn set_peer_image_quality(&mut self, id: i32, source_value: i32) -> Result<(), QosError> {
         self.has_peer(id)?; self.qos.user_image_quality(id, source_value); Ok(())
@@ -129,6 +145,22 @@ impl SourceVideoQos {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recording_claims_and_legacy_fps_are_bounded_per_registered_peer() {
+        let mut q = SourceVideoQos::new(false);
+        assert_eq!(q.set_peer_recording_claim(1, true), Err(QosError::InvalidPeer));
+        q.add_peer(1).unwrap(); q.add_peer(2).unwrap();
+        assert_eq!(q.set_peer_auto_fps(1, 0), Err(QosError::InvalidFps));
+        assert_eq!(q.set_peer_auto_fps(1, 121), Err(QosError::InvalidFps));
+        q.set_peer_auto_fps(1, 30).unwrap();
+        q.set_peer_recording_claim(1, true).unwrap();
+        assert!(q.any_peer_claims_recording());
+        q.set_peer_recording_claim(2, true).unwrap();
+        q.remove_peer(1).unwrap(); assert!(q.any_peer_claims_recording());
+        q.set_peer_recording_claim(2, false).unwrap(); assert!(!q.any_peer_claims_recording());
+        q.remove_peer(2).unwrap();
+        assert_eq!(q.set_peer_auto_fps(2, 30), Err(QosError::InvalidPeer));
+    }
     #[test]
     fn bounded_registration_and_measurements() {
         let mut q = SourceVideoQos::new(false);

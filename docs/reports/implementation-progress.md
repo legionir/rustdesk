@@ -3,10 +3,25 @@
 > Current status: extraction is incomplete. Later sections supersede historical
 > increments below. Experimental, caller-driven host/viewer, TCP/WSS, video
 > controls, cursor and restricted Windows input adapters, plus a narrow Node
-> viewer and loopback-only view host, have been added. Everything after local
-> transport CI run 41395071344 remains unbuilt and untested by request; no
-> post-deferral CI has run. These are not a verified standalone library or a
-> production-security guarantee. Real Windows desktop and audit gates remain.
+> viewer, loopback host and opt-in restricted network host, have been added.
+> The latest successful Linux/Windows CI was run 41442854621 on commit 229987e;
+> subsequent changes remain unbuilt and untested. These are not a verified
+> standalone library or a production-security guarantee. Real Windows desktop,
+> interoperability and audit gates remain.
+
+## Current Windows-first extraction work (unverified)
+
+Since the last successful CI, additional opt-in primitives cover scheduled
+multi-display capture and ACK pacing, display/original/supported-mode metadata,
+read-only Windows mode and foreground inspection, cursor-follow and echo hints,
+legacy lock-state planning, cooperative capture budgets and stale-key
+bookkeeping. A Node viewer exposes bounded peer metadata. These are mostly
+caller-driven building blocks, not end-to-end source services: none of these
+changes have been built, tested or audited. There is still no safe integrated
+mode change/restore, global input ownership, trusted local approval UI, 2FA,
+complete source interoperability, or Windows desktop validation. See
+`docs/analysis/remaining-core-work.md` for the detailed boundaries and
+`docs/analysis/deferred-validation-plan.md` for the pending checks.
 
 ## Windows-first capture and codec increment
 
@@ -186,3 +201,107 @@ threshold bookkeeping but is not wired into login: address attribution, shared
 prefix resets, capacity exhaustion, concurrent attempts and audit require an
 explicit security decision. These increments have not been built, tested or
 reviewed and do not complete extraction or establish a production-ready SDK.
+
+## Later extraction status (deferred validation)
+
+After CI run `41442854621` on `229987e`, the prototype gained trusted-only
+per-display decoder tracking, opt-in source video ACK login, bounded duplex TCP
+read-ahead after authorization, and a pre-TLS-admitted WSS listener. Windows
+mode enumeration and resolution planning are read-only; no automatic OS mode
+change or restoration is implemented. Multi-display reconfiguration, pacing and
+QoS bridges remain caller-driven. Source cursor, input-disable and encoding
+capability options are available as untrusted requests/claims, including partial
+Node APIs; they do not grant permissions or apply OS policy.
+
+The new code is **not covered** by the successful CI run and has not been
+compiled, tested or security reviewed. Native decoder allocations, live desktop
+permissions, input cleanup, topology races, duplex shutdown, interoperability,
+WSS proxy policy, genuine owner consent, and legal/distribution review remain
+open. A prepared workflow step will build and test an exported candidate after a
+future push, but no result exists yet. The work remains a partial extraction,
+not an independently versioned or production-ready repository.
+
+## Windows-first metadata and caller-driven follow increment (not tested)
+
+Further provisional work adds optional single-session source ACK pacing, a
+peer-input suppression gate, original/supported display resolution wire
+metadata, Node display-change inspection, caller-owned resolution recovery
+intent, and Windows foreground/cursor-follow and lock-state planning helpers.
+These do not implement automatic display mode changes/restoration, trusted
+consent, 2FA, native desktop isolation or a complete source video service. The
+new Windows foreground example requires explicit local consent. The latest
+successful CI remains run 41442854621 at `229987e`; none of these later changes
+has been compiled or tested. See `docs/analysis/remaining-core-work.md` for
+scope, source differences and open review gates.
+
+## Capture lifecycle and restricted input integration (not tested)
+
+Further local commits added cooperative capture reservations, opt-in caller-driven
+idle and receive watchdogs, Windows foreground/cursor follow hints with explicit
+caller assertions, and Node bindings for those pieces. `ScheduledSession` now
+composes a single authorized host with duplex read-ahead, multi-display pacing,
+optional ACK tracking and explicit capture cleanup/reconfiguration. This is
+still caller-driven, not an autonomous multi-peer source service. Source-style
+repeated key downs and restricted Windows scan/translate opt-ins were added;
+they do not supply OS-wide input arbitration or genuine consent. A desktop
+integration test and the Xvfb workflow invocation have been prepared but not
+run. The last confirmed passing CI is still `41442854621` on `229987e`.
+
+## Viewer bookkeeping and trusted-local decoder increment (not tested)
+
+Subsequent local commits add caller-driven, bounded source-style viewer FPS and
+UI-callback rate accounting, explicit FPS/refresh dispatch, and a conservative
+compressed-frame queue with caller-owned generation tickets. An opt-in Node
+trusted-local decoder keeps persistent software decode state on a dedicated
+thread; a separate Node cursor helper tracks bounded per-session selections and
+cache misses. A loopback example optionally connects the queue and decoder for
+one locally captured frame. These components do not provide a renderer,
+background orchestration or a hardened decoder. Refresh and request delivery,
+peer state, rendering and user consent are not established by local bookkeeping.
+The queue differs deliberately from the source overflow/keyframe channels;
+manual FPS reset and cursor resends require caller coordination.
+
+No new build or test has run. The last confirmed passing CI remains
+`41442854621` on `229987e`, predating these changes. Node host remains view-only,
+Native video must not be used for untrusted input, and the workspace still relies
+on the source checkout. Security, complete protocol/codec negotiation, 2FA,
+standalone packaging and real Windows desktop/input behavior remain open; this
+is not a completed extraction or a production release.
+
+The current workflow additionally prepares Node addon builds and noninteractive
+runtime tests on Linux and Windows, plus an Xvfb-only Node local-capture case.
+It has not run. The Windows lock-planner matrix and viewer 2FA-denial tests are
+also written but unrun; they add neither real OS lock synchronization nor 2FA.
+
+## Probe, recovery and repeat increments (not tested)
+
+Later local commits add a caller-driven source TestDelay/QoS bridge, Node probe
+send/untrusted reply metadata, a bounded event/capture fairness helper, pure
+Windows DXGI/GDI recovery policy, explicit GDI backend transition for software
+capture, and a conservative opt-in software cached-frame repeat. These are
+provisional and do not constitute an automatic source service. Probe replies can
+be forged; repeated screen content needs local authorization and privacy/age
+policy; source no-output and multi-peer/ACK behavior are not fully reproduced.
+The wrapper scrubs some owned pixel buffers but cannot guarantee native-memory
+erasure. The new Rust/Node/desktop fixtures and workflow steps have not run.
+The last known passing CI remains `41442854621` at `229987e`; all later commits
+are local and have not been validated by that run. See the detailed analysis and
+validation plan before attempting real Windows capture or security-sensitive use.
+
+## Subsequent source-aware scheduling, Unicode and 2FA work (unverified)
+
+The exact typed VP8/VP9 no-output marker now propagates through explicit local
+and network send, multi-display capture, scheduled sessions and a caller-driven
+static-refresh coordinator. No-output does not send or create an ACK wait.
+Explicit refresh includes cooperative cache-age polling and consent assertions,
+not a strict deadline, native-memory erasure, source-service parity or actual
+consent UI. The Windows backend also exposes an opt-in source Unicode path;
+source supplementary characters emit unmatched UTF-16 surrogate downs and
+Windows native delivery/cleanup remains unverified.
+
+Two-factor wire helpers, a caller-verifier gate, optional source `totp-rs`
+wrapper and one-code explicit viewer/Node flow are experimental. Default viewer
+login still fails closed on a 2FA prompt; host login does not enforce 2FA.
+Trusted-device handling, provisioning, global rate limits, replay prevention
+and UI remain unresolved. These additions and the new fixtures have not been
+built, tested, reviewed or pushed; prior CI results do not cover them.

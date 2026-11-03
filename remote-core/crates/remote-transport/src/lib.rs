@@ -4,6 +4,9 @@
 //! security boundary. It does not authenticate peers, encrypt data, implement
 //! a heartbeat, or provide reconnection. It requires an existing Tokio runtime.
 
+/// Sticky close-request signal; it does not itself close any transport.
+pub mod close_signal;
+
 use std::{fmt, future::Future, pin::Pin, time::Duration};
 use tokio::{sync::mpsc, time::timeout};
 
@@ -312,3 +315,18 @@ impl NetworkTransport for LocalNetworkTransport {
     fn close(&mut self) { self.inner.take(); }
 }
 impl Drop for LocalNetworkTransport { fn drop(&mut self) { NetworkTransport::close(self); } }
+
+/// Optional, explicitly enabled read-ahead driver. `try_receive` never cancels
+/// an in-flight socket read on an empty queue; it only inspects locally queued
+/// messages. Upgrade must be called by a trusted owner at a safe lifecycle
+/// boundary after authorization and after choosing final framing limits.
+/// Neither this trait nor an implementation proves transport security, bounds
+/// native decoder allocations or guarantees instant close across running tasks.
+pub trait UpgradeableDuplexTransport: NetworkTransport {
+    /// Consume the serial I/O state into one ordered reader and one writer.
+    /// On failure the transport may be unusable and must be closed.
+    fn upgrade_duplex(&mut self) -> Result<(), NetworkTransportError>;
+    /// Return a locally queued frame or `None` without waiting. Implementations
+    /// must return an error if this feature is not enabled or is closed.
+    fn try_receive(&mut self) -> Result<Option<Box<[u8]>>, NetworkTransportError>;
+}

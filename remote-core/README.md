@@ -1,6 +1,14 @@
-# RemoteCore — capture extraction prototype
+# RemoteCore — experimental extraction prototype
 
-This is an **experimental first adapter**, not a standalone RemoteCore release.
+This is an **experimental partial extraction**, not a standalone RemoteCore release.
+The latest local work is not covered by the historical CI runs linked below;
+no current independent build, two-system interoperability, security review or
+Windows interactive-desktop verification has been completed. The working gap
+list and deferred validation plan live in `../docs/analysis/remaining-core-work.md`
+and `../docs/analysis/deferred-validation-plan.md`. In particular, privacy,
+virtual-display and block-input wire helpers do not execute those operations;
+the experimental replay helper is not connected to host 2FA. Do not deploy this
+prototype as a secure remote-access service.
 It uses the RustDesk checkout's `libs/scrap`, `base`, and `hbb_common` by path;
 those crates also bring native libraries and other dependencies. The source
 commit is `23e5bb471a040d62f0a6ad52591fb30784265b73`, and the hbb_common
@@ -32,9 +40,9 @@ and dependencies before distribution; the final licensing decision is pending.
 `remote-codec` adapts the source VP8/VP9/libaom AV1 encoder/decoder for padded
 I420 input and packed CPU output. An opt-in H.264/H.265 RAM hardware adapter
 and a bounded wrapper around the source's global codec negotiation have since
-been added, but are not tested or integrated into a complete session. VRAM,
-packet-loss recovery and resolution changes in-place are not implemented in
-these adapters. None of the source capabilities has been removed from RustDesk. The decoder must not be used with untrusted streams: packet size checks
+been added, but are not tested or integrated into a complete session. A separate
+Windows `vram` prototype exists; packet-loss recovery, production fallback and
+in-place resolution changes remain incomplete. None of the source capabilities has been removed from RustDesk. The decoder must not be used with untrusted streams: packet size checks
 do not limit dimensions or native decoder allocations. No security audit has
 been performed.
 
@@ -59,6 +67,18 @@ bridge yet.
 
 ## Windows input prototype
 
+**Blocking safety concern:** the pinned source Enigo Windows `get_error`
+passes a 257-code-unit capacity to a 256-unit buffer and can index at the
+buffer length on certain long system error messages. The experimental Windows
+input backend reaches that path after failed mouse/key `SendInput` calls.
+The risk is based on static source inspection and has not been reproduced or
+fixed. Do not enable this backend until an independently maintained fix is
+reviewed, built and validated on disposable Windows. See
+`../docs/analysis/remaining-core-work.md` for the exact scope and next steps.
+The Windows local-pipeline, loopback-session and multi-display examples also
+construct this backend, even though their current policies grant view only;
+defer running them until the gate has been reviewed.
+
 `remote-input` wraps the source Enigo Windows backend and tracks held virtual
 keys and mouse buttons per controller. Permissions default to denied; revocation
 and `close()` attempt cleanup. Windows Enigo does not report all `SendInput`
@@ -67,13 +87,15 @@ is best-effort and cannot handle process crash or power loss. This module is not
 an authenticator or a sandbox. Only use it under an authenticated, authorized
 session manager that serializes access to the OS input device; concurrent
 controllers can otherwise interfere with each other's keys. Layout conversion,
-full scan-code/layout translation, text/IME, repeat and monitor-relative mapping
-are not implemented. Limited legacy BMP text, opt-in tracked modifiers and a
-restricted Windows Map-mode raw scan path do not reproduce full source behavior.
+full scan-code/layout translation, text/IME, automatic repeat timing and
+monitor-relative mapping are not implemented. Limited legacy BMP text, explicit
+repeat-down injection, opt-in tracked modifiers and restricted Windows Map and
+Translate paths do not reproduce full source behavior.
 Experimental mouse and unmodified legacy-control-key protocol translation covers
 only a subset and is documented in `../docs/api/protocol.md`.
 
-For an **interactive, disposable Windows desktop**, focus a test editor and run:
+Only **after the blocking safety gate above is fixed and reviewed**, on an
+interactive, disposable Windows desktop, focus a test editor and run:
 
 ```powershell
 cargo run --manifest-path remote-core/Cargo.toml -p remote-input --example windows_input -- --confirm-inject-input
@@ -188,9 +210,9 @@ bounds, and the first capture may return `WouldBlock`. The example is not yet
 built or tested.
 
 The experimental `bindings/node` Node-API addon covers local display enumeration,
-one raw frame capture and independent software-frame encoding only. It is not a remote desktop SDK; see its README
-for prerequisites, privacy constraints and limitations. It has not been built
-or tested.
+raw capture and software-frame encoding, plus partial host/viewer APIs. It is
+not a complete remote desktop SDK; see its README for prerequisites, privacy
+constraints and limitations. Later Node changes have not been built or tested.
 
 ### Exporting a candidate independent source tree
 
@@ -199,9 +221,28 @@ committed prototype, pinned RustDesk library paths, exact `hbb_common` submodule
 commit, root license and an inherited lockfile into a new directory outside the
 checkout. It does not modify the RustDesk source or initialize a Git repository.
 The exporter uses Git objects, so uncommitted changes are excluded. It records
-commits and archive hashes in `SOURCE_PROVENANCE.md`. The inherited lockfile is
+commits and archive hashes in `SOURCE_PROVENANCE.md` and an unsigned file hash
+manifest in `SOURCE_MANIFEST.sha256`. The baseline `.cargo/config.toml` is
+also included to retain its Windows CRT and other target settings; it has not
+been validated as a standalone build configuration. The inherited lockfile is
 only a resolution starting point: a locked independent build and license review
-are still outstanding. The exported tree is experimental and untested.
+are still outstanding. A focused generated root `.gitignore` excludes common
+build artifacts but cannot protect custom targets, secrets or user data. Before
+building or creating a repository, run
+`python remote-core/tools/verify-export.py /path/to/new-directory` on a trusted,
+quiescent tree. It detects file hash/membership changes, not authorship or
+provenance authenticity; build products and a new `.git` directory count as
+unlisted files. The exported tree is experimental and untested.
+
+`python3 remote-core/tools/audit-path-dependencies.py /path/to/new-directory`
+(Python 3.11+) additionally inspects explicit workspace members and local
+Cargo path dependencies, including target, development and build dependencies.
+It rejects unsupported workspace inheritance/globs, escaping/absolute paths
+and missing manifests instead of guessing. It does not invoke Cargo, interpret
+features, resolve remote crates, inspect build scripts/includes/native files,
+prove portability, verify hashes or replace a build. Candidate v41 at commit
+`bf4ea87` was inspected (16 manifests, 44 edges); the auditor's synthetic
+fixtures and all builds remain unrun.
 
 The RustDesk adapter also contains experimental loopback-only TCP client and
 listener wrappers using RustDesk's existing `FramedStream` codec. These are
@@ -242,12 +283,15 @@ run on an appropriate dedicated thread. It is not a host server, renderer,
 consent UI or authenticated transport. It has not been built or tested.
 
 The Node addon includes experimental pinned direct TCP/WSS viewers and a
-loopback-only, view-only host with single-frame and bounded burst sends. It does not render video or provide
-a complete input or general network host API. Its security and build are unverified; see `bindings/node/README.md`.
+view-only host with single-frame and bounded burst sends. Its default listener
+is loopback-only; a separate restricted network listener is explicitly opt-in.
+It does not render video or provide a complete input or general host API. Its security and build are unverified; see `bindings/node/README.md`.
 
 A further manual `windows_loopback_session` example composes the provisional
 direct TCP framing, pinned source-v1 key exchange, password/owner approval,
-capture pump and trusted local VP9 decode. It binds loopback only and captures a
+capture pump with an opt-in cooperative reservation and trusted local VP9 decode.
+The budget accounts for configured pixel area/stream counts, not actual native
+allocations or unbudgeted capture paths. It binds loopback only and captures a
 real screen; it requires an explicit command-line confirmation, an interactive
 disposable Windows desktop and native dependencies. It is written but **not
 built or run**; it is not a production security demonstration. Command after
@@ -260,8 +304,9 @@ cargo run --manifest-path remote-core/Cargo.toml -p remote-core --example window
 ### Experimental multi-display example (not built or run)
 
 On an authorized disposable Windows desktop with at least two displays, the
-following manual example captures and locally decodes one VP9 frame from each
-of the first two displays. It uses a temporary loopback-only key and demo
+following manual example drives a provisional scheduled duplex session and
+locally decodes the first VP9 frame from each of the first two displays, using
+per-stream budget reservations. The scheduler may send extra frames. It uses a temporary loopback-only key and demo
 password and reads real private screen contents; do not run without the local
 user's consent. Successful compilation would not prove GPU, hotplug, secure
 Desktop/UAC, production security or RustDesk interoperability.
@@ -274,3 +319,26 @@ cargo run --manifest-path remote-core/Cargo.toml -p remote-core --example window
 are separate caller-driven experimental pieces. They do not automatically
 follow display changes, schedule captures, coordinate decoder recreation or
 provide an owner-consent UI. See `../docs/analysis/remaining-core-work.md`.
+
+### Status of newer increments
+
+The latest successful CI run applies only to commit `229987e`:
+https://github.com/legionir/rustdesk/actions/runs/41442854621. Later changes,
+including the opt-in direct TCP read-ahead driver, read-only Windows display
+mode planning, WSS listener composition and recent Node additions, have not
+been built, tested or security reviewed. See `../docs/analysis/remaining-core-work.md`
+for current gaps, caveats and deferred validation. The prototype is not a
+replacement for RustDesk and must not be exposed to untrusted peers.
+
+### Manual Windows foreground-follow inspection (unverified)
+
+Only after informed local consent on a disposable interactive desktop:
+
+```powershell
+cargo run --manifest-path remote-core/Cargo.toml -p remote-core --example windows_foreground_follow -- --confirm-local-foreground-inspection
+```
+
+The example samples foreground window geometry for ten seconds and prints only
+changes in the matching display index. It does not send data, inject input or
+capture pixels. Focus/geometry still reveal activity; topology and DPI contexts
+may change, and the example has not been built or tested.

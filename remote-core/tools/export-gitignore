@@ -1,0 +1,6 @@
+# Local build products; this does not make the candidate a release.
+/remote-core/target/
+/remote-core/bindings/node/remote_core.node
+/remote-core/bindings/node/node_modules/
+**/__pycache__/
+*.pyc

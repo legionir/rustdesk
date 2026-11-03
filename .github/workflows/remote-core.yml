@@ -11,14 +11,22 @@ permissions:
 jobs:
   capture-linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+          # Export provenance verifies that HEAD descends from the baseline.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
       - name: Install native dependencies
         run: |
           sudo apt-get update
@@ -52,14 +60,45 @@ jobs:
           }
           run_cargo cargo check --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
           run_cargo cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
+          # Optional, unconnected source TOTP adapter; not a security review.
+          run_cargo cargo test --manifest-path remote-core/Cargo.toml -p remote-security --features source-totp
+      # Deferred: these actually load the built N-API addon and run synthetic
+      # local/loopback tests; no interactive host desktop is accessed.
+      - name: Build and exercise Node addon
+        working-directory: remote-core/bindings/node
+        env:
+          REMOTE_CORE_LINUX_PKG_CONFIG: '1'
+        run: |
+          npm run build
+          npm test
+      - name: Exercise Node capture on isolated Xvfb display
+        working-directory: remote-core/bindings/node
+        run: REMOTE_CORE_ALLOW_REAL_CAPTURE=1 xvfb-run -a node --test test/local-host.test.cjs
+      # Deferred until the branch is pushed. This exercises an exported source
+      # candidate outside the checkout; it is not license/security validation.
+      - name: Check exported source candidate
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          python3 remote-core/tools/export-source.py "$RUNNER_TEMP/remote-core-export"
+          cd "$RUNNER_TEMP/remote-core-export"
+          python3 remote-core/tools/verify-export.py .
+          python3 remote-core/tools/audit-path-dependencies.py .
+          python3 -m unittest discover -s remote-core/tools/tests
+          cargo check --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
+          cargo test --manifest-path remote-core/Cargo.toml --workspace --features linux-pkg-config
       - name: Capture and encode a virtual display
         run: |
           REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml -p remote-capture --features linux-pkg-config --test x11_capture -- --nocapture
           REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml -p remote-codec --features linux-pkg-config --test capture_pipeline -- --nocapture
+          REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml -p remote-core --features linux-pkg-config --test scheduled_desktop -- --nocapture
+          REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml -p remote-core --features linux-pkg-config,source-security --test bounded_host_loop_desktop -- --nocapture
+          REMOTE_CORE_TEST_DISPLAY=1 xvfb-run -a cargo test --manifest-path remote-core/Cargo.toml -p remote-core --features linux-pkg-config --test host_repeat_desktop -- --nocapture
 
   capture-codec-windows:
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 150
     env:
       CARGO_TERM_COLOR: never
       VCPKG_COMMIT_ID: 9e593bb18ea69cc5095e012465dcd675a822ed0d
@@ -67,9 +106,16 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
       - name: Set up pinned vcpkg
         uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
         with:
@@ -102,6 +148,34 @@ jobs:
           }
           run_cargo cargo check --manifest-path remote-core/Cargo.toml --workspace
           run_cargo cargo test --manifest-path remote-core/Cargo.toml --workspace
+          run_cargo cargo test --manifest-path remote-core/Cargo.toml -p remote-security --features source-totp
+
+      # Synthetic local/loopback cases only; interactive Windows desktop tests
+      # are separately opt-in and are not represented by this hosted runner.
+      - name: Build and exercise Node addon
+        working-directory: remote-core/bindings/node
+        shell: bash
+        run: |
+          npm run build
+          npm test
+
+      # Standalone candidate has different directory ancestry/config than the
+      # checkout; verify it separately on Windows, not only on Linux.
+      - name: Check Windows exported source candidate
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          python remote-core/tools/export-source.py "$RUNNER_TEMP/remote-core-export"
+          cd "$RUNNER_TEMP/remote-core-export"
+          python remote-core/tools/verify-export.py .
+          python remote-core/tools/audit-path-dependencies.py .
+          python -m unittest discover -s remote-core/tools/tests
+          cargo check --manifest-path remote-core/Cargo.toml --workspace
+          cargo test --manifest-path remote-core/Cargo.toml --workspace
+          cd remote-core/bindings/node
+          npm run build
+          npm test
 
   local-transport:
     strategy:

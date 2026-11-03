@@ -8,6 +8,13 @@
 //! channel. This crate is not audited and does not implement TLS, rate limiting,
 //! persistent replay defense, token management, 2FA, or owner-consent UI.
 
+/// Optional source-compatible TOTP verifier; not integrated into login.
+#[cfg(feature = "source-totp")]
+pub mod source_totp;
+/// Optional, caller-verified second-factor state; not integrated into login.
+pub mod two_factor_gate;
+/// Optional in-process replay-claim primitive; not integrated with login.
+pub mod replay_claims;
 /// Bounded pre-authorization admission for cooperating connection managers.
 pub mod admission;
 /// Optional bounded in-process local owner-decision handoff (not an OS UI).

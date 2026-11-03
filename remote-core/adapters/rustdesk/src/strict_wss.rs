@@ -19,12 +19,14 @@ use url::Url;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 /// Maximum number of control frames handled during one receive operation.
 const MAX_CONTROL_FRAMES_PER_RECEIVE: usize = 32;
+/// Local bound before URL parsing; not a network or HTTP allocation bound.
+const MAX_ENDPOINT_BYTES: usize = 4096;
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// WSS validation, connection or I/O error. It never contains the endpoint URL.
 #[derive(Debug)]
 pub enum WssError {
-    /// Only WSS URLs with a host and without credentials, query or fragment are accepted.
+    /// Only bounded WSS URLs with a host and without whitespace, credentials, query or fragment are accepted.
     InvalidEndpoint,
     /// Invalid message limit.
     InvalidLimit,
@@ -50,7 +52,7 @@ pub enum WssError {
 impl fmt::Display for WssError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidEndpoint => f.write_str("expected a WSS URL without credentials, query or fragment"),
+            Self::InvalidEndpoint => f.write_str("expected a bounded WSS URL without whitespace, credentials, query or fragment"),
             Self::InvalidLimit => f.write_str("invalid WSS message limit"),
             Self::InvalidTimeout => f.write_str("WSS deadline must be nonzero"),
             Self::MessageTooLarge { size, limit } => write!(f, "message size {size} exceeds limit {limit}"),
@@ -67,6 +69,11 @@ impl fmt::Display for WssError {
 impl Error for WssError {}
 
 fn endpoint(raw: &str) -> Result<Url, WssError> {
+    // URL parsers may silently strip tabs/newlines and normalize whitespace;
+    // require the trusted caller to provide an explicit bounded endpoint.
+    if raw.len() > MAX_ENDPOINT_BYTES || raw.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(WssError::InvalidEndpoint);
+    }
     let url = Url::parse(raw).map_err(|_| WssError::InvalidEndpoint)?;
     if url.scheme() != "wss" || url.host().is_none() || !url.username().is_empty()
         || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
@@ -107,8 +114,13 @@ pub struct StrictWss {
     max_message_size: usize,
 }
 impl StrictWss {
+    /// Validate the same bounded endpoint policy used by `connect`, without
+    /// making a network request. This is not SSRF protection or DNS validation.
+    pub fn validate_endpoint(raw: &str) -> Result<(), WssError> { endpoint(raw).map(|_| ()) }
     /// Connect with validated TLS server identity and no insecure fallback.
     ///
+    /// A local 4096-byte bound applies; raw whitespace and control characters
+    /// are rejected, not normalized (percent-encode any intended path spaces).
     /// Only a trusted application should choose the endpoint: the URL can
     /// point to any network host (SSRF protections are not implemented).
     /// Query strings, authentication headers, client certificates, proxies,
@@ -260,6 +272,10 @@ mod tests {
     #[test]
     fn endpoint_policy_refuses_plaintext_and_url_secrets() {
         assert!(endpoint("wss://example.com/path").is_ok());
+        assert!(endpoint("wss://example.com/path%20name").is_ok());
+        assert!(matches!(endpoint("wss://example.com/\npath"), Err(WssError::InvalidEndpoint)));
+        assert!(matches!(endpoint("wss://example.com/path name"), Err(WssError::InvalidEndpoint)));
+        assert!(matches!(endpoint(&format!("wss://example.com/{}", "x".repeat(MAX_ENDPOINT_BYTES))), Err(WssError::InvalidEndpoint)));
         for value in ["ws://example.com/", "https://example.com/", "wss://user:pass@example.com/", "wss://example.com/?token=x", "wss://example.com/#x", "wss://example.com:0/"] {
             assert!(matches!(endpoint(value), Err(WssError::InvalidEndpoint)));
         }

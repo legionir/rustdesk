@@ -54,7 +54,7 @@ pub struct EncoderConfig {
 }
 
 /// Encoded packet data and timing from the underlying encoder.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Packet {
     /// Encoded bytes.
     pub data: Vec<u8>,
@@ -62,6 +62,12 @@ pub struct Packet {
     pub key: bool,
     /// Presentation timestamp in milliseconds.
     pub pts: i64,
+}
+
+impl std::fmt::Debug for Packet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Packet").field("bytes", &self.data.len()).field("key", &self.key).field("pts", &self.pts).finish()
+    }
 }
 
 /// Encoded packets produced by a single encoder invocation.
@@ -72,6 +78,12 @@ pub struct EncodedFrame {
     /// Ordered packets, preserving source timestamps and keyframe flags.
     pub packets: Vec<Packet>,
 }
+
+/// Explicit source VPX outcome. `VpxNoOutput` means the pinned encoder
+/// reported its specific no-output condition; no frame was sent or rendered.
+/// This is not interchangeable with arbitrary native failures or AV1 errors.
+#[derive(Clone, Debug)]
+pub enum EncodeOutcome { Frame(EncodedFrame), VpxNoOutput }
 
 /// Required aligned I420 buffer layout. Offsets and strides include padding.
 #[derive(Clone, Copy, Debug)]
@@ -93,6 +105,15 @@ pub struct I420Layout {
 fn invalid(message: &'static str) -> io::Error { io::Error::new(io::ErrorKind::InvalidInput, message) }
 fn codec_error(error: impl std::fmt::Display) -> io::Error { io::Error::new(io::ErrorKind::Other, error.to_string()) }
 
+/// Explicit acknowledgment that a repeat may resend a previously captured
+/// screen image. This is not consent or permission; the caller must recheck
+/// current view authorization, desktop identity and retention policy.
+#[derive(Clone, Copy, Debug)]
+pub struct RepeatFrameOptIn(());
+impl RepeatFrameOptIn {
+    pub fn acknowledge_cached_screen_pixels() -> Self { Self(()) }
+}
+
 /// An I420 software encoder using the original RustDesk encoder implementation.
 pub struct SoftwareEncoder {
     native: Encoder,
@@ -101,6 +122,7 @@ pub struct SoftwareEncoder {
     width: usize,
     height: usize,
     converted: Vec<u8>,
+    repeatable: bool,
 }
 
 impl SoftwareEncoder {
@@ -142,7 +164,7 @@ impl SoftwareEncoder {
             return Err(invalid("invalid backend I420 plane offsets"));
         }
         let layout = I420Layout { u_offset: format.u, v_offset: format.v, y_stride: strides[0], u_stride: strides[1], v_stride: strides[2], buffer_len: v_end };
-        Ok(Self { native, codec: config.codec, layout, width: config.width as usize, height: config.height as usize, converted: vec![0; layout.buffer_len] })
+        Ok(Self { native, codec: config.codec, layout, width: config.width as usize, height: config.height as usize, converted: vec![0; layout.buffer_len], repeatable: false })
     }
 
     /// Get the exact padded I420 layout required by this instance.
@@ -153,7 +175,10 @@ impl SoftwareEncoder {
         if !quality.is_finite() || quality <= 0.0 || quality > 2.0 {
             return Err(invalid("quality must be finite, positive and at most 2"));
         }
-        self.native.set_quality(quality).map_err(codec_error)
+        match self.native.set_quality(quality) {
+            Ok(()) => Ok(()),
+            Err(error) => { self.repeatable = false; Err(codec_error(error)) },
+        }
     }
 
     /// Current backend-reported target bitrate in kbps, not measured traffic.
@@ -165,6 +190,20 @@ impl SoftwareEncoder {
     /// The source stride and buffer are validated before native code is called.
     /// Dimensions must match the encoder configuration; recreate the encoder on resize.
     pub fn encode_packed(&mut self, data: &[u8], stride: usize, format: PackedFormat, pts_ms: i64) -> io::Result<EncodedFrame> {
+        match self.encode_packed_outcome(data, stride, format, pts_ms)? {
+            EncodeOutcome::Frame(frame) => Ok(frame),
+            EncodeOutcome::VpxNoOutput => { self.repeatable = false; Err(codec_error("no valid frame")) },
+        }
+    }
+
+    /// Source-aware packed encode. A typed VP8/VP9 no-output result retains the
+    /// converted input, as the source static-refresh path does. This does not
+    /// prove delivery or permit stale frame disclosure; callers must enforce
+    /// authorization, age, repeat limits and decoder synchronization. Native
+    /// errors other than the exact VPX marker remain errors and invalidate the
+    /// repeat input. This experimental path has not been built or tested.
+    pub fn encode_packed_outcome(&mut self, data: &[u8], stride: usize, format: PackedFormat, pts_ms: i64) -> io::Result<EncodeOutcome> {
+        self.repeatable = false;
         let row_bytes = self.width.checked_mul(4).ok_or_else(|| invalid("row size overflow"))?;
         let required = stride.checked_mul(self.height).ok_or_else(|| invalid("source size overflow"))?;
         if stride < row_bytes || stride > i32::MAX as usize || data.len() < required {
@@ -185,13 +224,63 @@ impl SoftwareEncoder {
                 l.v_stride as i32, self.width as i32, self.height as i32)
         };
         if result != 0 { return Err(codec_error(format!("libyuv conversion failed: {result}"))); }
-        let video = self.native.encode_to_message(EncodeInput::YUV(buffer), pts_ms).map_err(codec_error)?;
-        Self::pack(self.codec, video)
+        let result = self.native.encode_to_message(EncodeInput::YUV(buffer), pts_ms);
+        let outcome = Self::classify_native(self.codec, result)?;
+        self.repeatable = true;
+        Ok(outcome)
+    }
+
+    /// Whether this wrapper has a successfully encoded packed input available,
+    /// or a source-classified VPX no-output input on the explicit outcome path.
+    /// This says nothing about authorization, delivery, or whether the screen
+    /// changed since capture. It does not inspect native codec memory.
+    pub fn has_repeatable_input(&self) -> bool { self.repeatable }
+    /// Forget and zero the wrapper-owned converted image immediately. Native
+    /// encoder memory, prior allocations and external copies are unaffected.
+    pub fn clear_repeat_input(&mut self) {
+        use zeroize::Zeroize;
+        self.repeatable = false;
+        self.converted.as_mut_slice().zeroize();
+    }
+    /// Explicitly re-encode the most recent successfully packed input using
+    /// its existing wrapper-owned I420 buffer. No screen is sampled. The caller
+    /// must authorize each repeat, enforce retention and scheduling limits, and
+    /// handle decoder refresh and uncertain delivery. Any encode/packing error
+    /// invalidates the cached input; unlike source, VPX no-output is not
+    /// distinguished and this conservative API does not continue on that error.
+    pub fn repeat_packed(&mut self, pts_ms: i64, _: RepeatFrameOptIn) -> io::Result<EncodedFrame> {
+        if !self.repeatable { return Err(invalid("no repeatable packed input")); }
+        self.repeatable = false;
+        let video = self.native.encode_to_message(EncodeInput::YUV(&self.converted), pts_ms).map_err(codec_error)?;
+        let frame = Self::pack(self.codec, video)?;
+        self.repeatable = true;
+        Ok(frame)
+    }
+
+    /// Source-aware repeat of the retained converted input. An exact VPX
+    /// no-output retains eligibility; any other error invalidates it. The
+    /// returned outcome makes no statement about delivery or freshness.
+    pub fn repeat_packed_outcome(&mut self, pts_ms: i64, _: RepeatFrameOptIn) -> io::Result<EncodeOutcome> {
+        if !self.repeatable { return Err(invalid("no repeatable packed input")); }
+        self.repeatable = false;
+        let result = self.native.encode_to_message(EncodeInput::YUV(&self.converted), pts_ms);
+        let outcome = Self::classify_native(self.codec, result)?;
+        self.repeatable = true;
+        Ok(outcome)
+    }
+
+    fn classify_native(codec: Codec, result: hbb_common::ResultType<base::message_proto::VideoFrame>) -> io::Result<EncodeOutcome> {
+        match result {
+            Ok(video) => Ok(EncodeOutcome::Frame(Self::pack(codec, video)?)),
+            Err(error) if matches!(codec, Codec::Vp8 | Codec::Vp9) && error.is::<scrap::VpxNoOutput>() => Ok(EncodeOutcome::VpxNoOutput),
+            Err(error) => Err(codec_error(error)),
+        }
     }
 
     /// Encode one padded I420 image, with a presentation timestamp in milliseconds.
     /// The backend may return an error when it produces no output.
     pub fn encode(&mut self, i420: &[u8], pts_ms: i64) -> io::Result<EncodedFrame> {
+        self.repeatable = false;
         if i420.len() < self.layout.buffer_len { return Err(invalid("I420 buffer too short")); }
         let video = self.native.encode_to_message(EncodeInput::YUV(i420), pts_ms).map_err(codec_error)?;
         Self::pack(self.codec, video)
@@ -205,6 +294,16 @@ impl SoftwareEncoder {
             _ => return Err(codec_error("encoder returned unexpected codec")),
         };
         Ok(EncodedFrame { codec, packets: packets.into_iter().map(|p| Packet { data: p.data.to_vec(), key: p.key, pts: p.pts }).collect() })
+    }
+}
+
+// Best-effort cleanup of this wrapper's retained converted screen pixels.
+// Native codecs, capture buffers, packets, allocator copies and crashes remain
+// outside this guarantee; this is not secure erasure of all screen content.
+impl Drop for SoftwareEncoder {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.converted.as_mut_slice().zeroize();
     }
 }
 
@@ -224,6 +323,15 @@ pub struct SoftwareDecoder {
     codec: Codec,
     rgb: ImageRgb,
     texture: ImageTexture,
+}
+
+// Only the current wrapper-owned RGB allocation is scrubbed. Native decoder
+// buffers, previous reallocations and caller copies are not controlled here.
+impl Drop for SoftwareDecoder {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.rgb.raw.as_mut_slice().zeroize();
+    }
 }
 
 impl SoftwareDecoder {
@@ -261,6 +369,31 @@ impl SoftwareDecoder {
 mod tests {
     use super::*;
     fn config(codec: Codec) -> EncoderConfig { EncoderConfig { codec, width: 64, height: 64, quality: 1.0, keyframe_interval: Some(30) } }
+
+    #[test]
+    fn exact_vpx_no_output_is_distinct_from_other_errors() {
+        let marker = || Err(hbb_common::anyhow::Error::new(scrap::VpxNoOutput));
+        assert!(matches!(SoftwareEncoder::classify_native(Codec::Vp8, marker()), Ok(EncodeOutcome::VpxNoOutput)));
+        assert!(matches!(SoftwareEncoder::classify_native(Codec::Vp9, marker()), Ok(EncodeOutcome::VpxNoOutput)));
+        assert!(SoftwareEncoder::classify_native(Codec::Av1, marker()).is_err());
+        let lookalike = Err(hbb_common::anyhow::anyhow!("no valid frame"));
+        assert!(SoftwareEncoder::classify_native(Codec::Vp9, lookalike).is_err());
+    }
+    #[test]
+    fn source_aware_packed_input_is_repeatable_after_frame_or_vpx_no_output() {
+        let mut encoder = SoftwareEncoder::new(config(Codec::Vp9)).unwrap();
+        let input = vec![100; 64 * 64 * 4];
+        let result = encoder.encode_packed_outcome(&input, 256, PackedFormat::Bgra, 0).unwrap();
+        assert!(matches!(result, EncodeOutcome::Frame(_) | EncodeOutcome::VpxNoOutput));
+        assert!(encoder.has_repeatable_input());
+        let result = encoder.repeat_packed_outcome(100, RepeatFrameOptIn::acknowledge_cached_screen_pixels());
+        match result {
+            Ok(EncodeOutcome::Frame(_)) | Ok(EncodeOutcome::VpxNoOutput) => assert!(encoder.has_repeatable_input()),
+            Err(_) => assert!(!encoder.has_repeatable_input()),
+        }
+        encoder.clear_repeat_input();
+        assert!(!encoder.has_repeatable_input());
+    }
 
     #[test]
     fn rejects_invalid_config_and_short_input() {
@@ -314,10 +447,52 @@ mod tests {
     }
 
     #[test]
+    fn repeat_input_is_explicit_and_cleared_without_claiming_native_erasure() {
+        let mut encoder = SoftwareEncoder::new(config(Codec::Vp9)).unwrap();
+        let opt = RepeatFrameOptIn::acknowledge_cached_screen_pixels();
+        assert!(!encoder.has_repeatable_input());
+        assert!(encoder.repeat_packed(1, opt).is_err());
+        let input = vec![100; 64 * 64 * 4];
+        let first = encoder.encode_packed(&input, 256, PackedFormat::Bgra, 0).unwrap();
+        assert!(encoder.has_repeatable_input());
+        let mut decoder = SoftwareDecoder::new(Codec::Vp9).unwrap();
+        assert!(decoder.decode(&first).unwrap().is_some());
+        // Source VPX may drop an identical frame; the conservative API disables
+        // repeat after any error rather than assuming native state is reusable.
+        match encoder.repeat_packed(100, opt) {
+            Ok(frame) => { assert!(encoder.has_repeatable_input()); let _ = decoder.decode(&frame).unwrap(); },
+            Err(_) => assert!(!encoder.has_repeatable_input()),
+        }
+        encoder.clear_repeat_input();
+        assert!(!encoder.has_repeatable_input());
+        assert!(encoder.converted.iter().all(|&byte| byte == 0));
+        assert!(encoder.repeat_packed(200, opt).is_err());
+        // A rejected later input cannot accidentally repeat an older screen.
+        let mut second = SoftwareEncoder::new(config(Codec::Vp9)).unwrap();
+        second.encode_packed(&input, 256, PackedFormat::Bgra, 0).unwrap();
+        assert!(second.has_repeatable_input());
+        assert!(second.encode_packed(&[], 256, PackedFormat::Bgra, 300).is_err());
+        assert!(!second.has_repeatable_input());
+        assert!(second.repeat_packed(400, opt).is_err());
+        second.clear_repeat_input();
+    }
+
+    #[test]
     fn rejects_bad_packet_batches() {
         let mut decoder = SoftwareDecoder::new(Codec::Vp8).unwrap();
         assert!(decoder.decode(&EncodedFrame { codec: Codec::Vp9, packets: vec![] }).is_err());
         assert!(decoder.decode(&EncodedFrame { codec: Codec::Vp8, packets: vec![] }).is_err());
         assert!(decoder.decode(&EncodedFrame { codec: Codec::Vp8, packets: vec![Packet { data: vec![], key: false, pts: 0 }] }).is_err());
+    }
+}
+
+#[cfg(test)]
+mod redacted_packet_debug_tests {
+    use super::*;
+    #[test]
+    fn compressed_bytes_are_not_printed_by_debug() {
+        let packet = Packet { data: vec![101, 102, 103], key: true, pts: 0 };
+        let debug = format!("{packet:?}");
+        assert!(debug.contains("bytes: 3")); assert!(!debug.contains("101"));
     }
 }

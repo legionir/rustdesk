@@ -157,9 +157,11 @@ The restricted opt-in Windows Map-mode path now uses the same pinned `rdev`
 raw `ScanCode` representation as `src/server/input_service.rs` and tracks
 held scan keys for revocation/close. It refuses mixed scan/virtual tracked keys,
 modifier-bearing wire messages, press semantics and codes outside the stated
-range; it does not provide desktop switching, source modifier/lock-state repair,
-repeat or Translate mode. No real Windows input, rdev build or fake test has run.
-It is not enabled for the view-only Node host and is not an OS-wide lock.
+range; it does not provide desktop switching or source modifier/lock-state repair.
+Limited repeat and Translate-mode paths have since been added as separate opt-ins.
+No real Windows input, rdev build or newer fake test has run. The view-only Node
+host now exposes mode toggles, but its permissions still deny keyboard injection;
+the toggles do not grant input or establish an OS-wide lock.
 
 Windows Translate-mode `Chr` handling is also available through a separate
 explicit host opt-in: source `translate_process_code` selects a raw scan when
@@ -167,6 +169,54 @@ the upper 16 bits are zero, otherwise a raw Windows virtual key. The input
 controller tracks these separately from Enigo keys and refuses simultaneous
 mixed representations, so some normal shortcuts and modifiers cannot work.
 It does not implement Translate-mode sequence/hotkey behavior, OS modifier
-repair, keyboard layout synchronization, repeat or portable-service desktop
-switching. Node exposes a wire sender only; the local Node host remains
-view-only. Native behavior, cleanup and tests remain unverified.
+repair, keyboard layout synchronization or portable-service desktop switching.
+Repeat is separately opt-in for these restricted paths. The local Node host
+exposes opt-in controls and a wire sender but remains view-only, so control is
+not granted by toggling a mode. Native behavior, cleanup and tests remain
+unverified.
+
+### Optional source-style delay probe bridge (unverified)
+
+An embedding host may bind `probe_qos::ProbeQos` to a locally allocated QoS peer
+and its own `SessionId`, then explicitly send probes, feed host events and tick
+elapsed observations into `SourceVideoQos`. It does not launch tasks. All host
+control/input processing, valid session/peer association, source timer cadence,
+QoS policy, encoder adaptation and cleanup remain caller duties. A cancelled or
+failed probe send makes the tracker unusable and the host must be closed.
+Probe fields have no nonce, are spoofable/replayable and are not authentication.
+The exact-echo and 60-second restrictions differ from source and require interop
+review; no Node, real desktop or source interoperability test has run.
+
+### Fair caller-driven service step (unverified)
+
+`ScheduledSession::drive_once` offers one explicit event-or-capture step after
+upgrading to direct-TCP read-ahead. It returns at most four immediately available
+host events consecutively before forcing a capture/pacing attempt; an empty
+queue also produces a capture/pacing attempt. This is a local scheduling policy,
+not the source's service or fairness between sessions. It never applies a peer
+control request automatically. On `Wait`, callers must still poll incoming
+control/ACKs, authorization and liveness rather than sleeping until capture is
+due. Mixing direct `poll_event` or `capture_step` calls bypasses the helper's
+burst accounting. Native capture may block the executing thread, and errors or
+cancellation still require the documented explicit cleanup. The helper has not
+been built, exercised under load or validated on an interactive desktop.
+
+### Explicit source-aware VPX capture and repeat (unverified)
+
+The opt-in `capture_step_outcome` and `drive_once_outcome` variants distinguish
+an exact VP8/VP9 `VpxNoOutput` from a sent frame; the former preserves the
+encoder, reserves cadence but creates no ACK wait. `repeat_outcome` explicitly
+re-encodes the retained frame, checks any per-display ACK wait before sending,
+and records a new wait only if a frame was actually sent. These methods do not
+schedule source static refresh automatically: the caller must bound cache age,
+obtain continued local consent, service events/timeouts and pace repeats. Peer
+ACKs are connection-wide untrusted claims, not proof of rendering. Legacy step
+methods retain their conservative failure semantics. This path has not been
+built, tested or security reviewed.
+
+The experimental host can explicitly enable source-style Windows Unicode for
+an already-authorized keyboard session. The opt-in token acknowledges Enigo's
+unmatched surrogate-down and partial-delivery risks; it is neither local owner
+consent nor an OS-global input lock. Default dispatch remains BMP-only, and
+revocation/disable cannot undo events already sent. This has not been built,
+tested on Windows or security reviewed.

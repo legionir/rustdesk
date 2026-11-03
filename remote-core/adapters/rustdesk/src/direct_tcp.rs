@@ -85,6 +85,13 @@ impl DirectTcp {
         Ok(Self { stream: Some(stream), frame_limit })
     }
     pub fn is_open(&self) -> bool { self.stream.is_some() }
+    /// Hand an established framed socket to the isolated duplex driver while
+    /// preserving buffered framing state. The caller must ensure no operation is
+    /// in flight and must never reuse a moved stream.
+    pub(crate) fn into_framed(mut self) -> Result<(FramedStream, usize), NetworkTransportError> {
+        Ok((self.stream.take().ok_or(NetworkTransportError::Closed)?, self.frame_limit))
+    }
+
 }
 impl NetworkTransport for DirectTcp {
     fn send<'a>(&'a mut self, data: &'a [u8], deadline: Duration) -> TransportFuture<'a, Result<(), NetworkTransportError>> {

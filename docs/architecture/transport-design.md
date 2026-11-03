@@ -121,3 +121,20 @@ and are not identity, permission or relay authorization. Hostnames, proxy
 rewrites, browser origins and URI policy must be decided for the deployment;
 the permissive `accept_wss` remains explicitly separate. Policy and handshake
 cases are written but not executed.
+
+#### Experimental post-login direct TCP read-ahead
+
+The optional duplex experiment keeps the pinned source-v1 framing and key
+exchange: serial login first, freeze the authorized frame bound, then hand off
+buffered framing state and independent send/receive cipher counters to bounded
+reader and writer tasks. A one-message queue in each direction provides
+backpressure. Dropping either half, I/O error, timeout or cancellation signals
+both tasks to close; task scheduling makes closure asynchronous. Idle polling
+reads only the local queue and does not cancel a network receive. Delivery after
+an interrupted send is indeterminate and must not be retried. This design has
+not been built, tested, audited, benchmarked or validated for source interop;
+it is not enabled by default and currently applies only to direct TCP, not
+WSS. It is read-ahead, not a complete concurrent host, because host state and
+capture/input operations remain serialized. Explicit consent and ownership,
+topology changes, shutdown deadlines, QoS, reconnect, DoS and memory limits
+remain unresolved.

@@ -58,6 +58,19 @@ impl Error for AdmissionError {}
 struct State { next_id: u64, entries: HashMap<u64, IpAddr> }
 struct Inner { limits: AdmissionLimits, state: Mutex<State> }
 
+/// Normalize IPv4-mapped IPv6 socket addresses exactly as this admission
+/// controller does. Applications combining this controller with separately
+/// owned counters may choose this helper to avoid splitting one address across
+/// two buckets, but must consistently apply it to every operation. This is not
+/// proxy attribution or authentication, and it changes source counter semantics
+/// for mapped IPv6 inputs; that policy must be explicitly reviewed.
+pub fn normalize_socket_ip(address: IpAddr) -> IpAddr {
+    match address {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+        other => other,
+    }
+}
+
 /// A cloneable admission controller shared across cooperating transports.
 #[derive(Clone)]
 pub struct AdmissionController { inner: Arc<Inner> }
@@ -78,10 +91,7 @@ impl AdmissionController {
     /// it never silently makes room while a previous connection remains live.
     /// IPv4-mapped IPv6 addresses are normalized before per-address counting.
     pub fn admit(&self, address: IpAddr) -> Result<AdmissionPermit, AdmissionError> {
-        let address = match address {
-            IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
-            other => other,
-        };
+        let address = normalize_socket_ip(address);
         let expires = Instant::now().checked_add(self.inner.limits.login_grace).ok_or(AdmissionError::InvalidLimits)?;
         let mut state = self.inner.state.lock().map_err(|_| AdmissionError::Poisoned)?;
         if state.entries.values().filter(|ip| **ip == address).count() >= self.inner.limits.max_per_address { return Err(AdmissionError::AddressLimit); }
@@ -133,6 +143,14 @@ mod tests {
         assert!(matches!(c.admit("127.0.0.3".parse().unwrap()), Err(AdmissionError::GlobalLimit)));
         drop(a); assert_eq!(c.active().unwrap(), 1);
         b.authorization_complete(); assert_eq!(c.active().unwrap(), 0);
+    }
+    #[test]
+    fn normalization_only_collapses_v4_mapped_ipv6() {
+        let v4: IpAddr = "192.0.2.1".parse().unwrap();
+        assert_eq!(normalize_socket_ip("::ffff:192.0.2.1".parse().unwrap()), v4);
+        assert_eq!(normalize_socket_ip(v4), v4);
+        let v6: IpAddr = "2001:db8::1".parse().unwrap();
+        assert_eq!(normalize_socket_ip(v6), v6);
     }
     #[test]
     fn rejects_invalid_limits_and_holds_slot_until_drop() {

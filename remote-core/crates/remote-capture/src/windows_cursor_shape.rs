@@ -18,7 +18,7 @@ fn invalid(message: &'static str) -> io::Error { io::Error::new(io::ErrorKind::I
 
 /// Raw RGBA shape of the current visible cursor. `handle_id` is transient and
 /// may be reused; derive a content ID before using it as a remote cache key.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WindowsCursorShape {
     pub handle_id: u64,
     pub hotx: i32,
@@ -26,6 +26,12 @@ pub struct WindowsCursorShape {
     pub width: i32,
     pub height: i32,
     pub rgba: Vec<u8>,
+}
+impl std::fmt::Debug for WindowsCursorShape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WindowsCursorShape").field("handle_id", &self.handle_id).field("hotx", &self.hotx).field("hoty", &self.hoty)
+            .field("width", &self.width).field("height", &self.height).field("rgba_bytes", &self.rgba.len()).finish()
+    }
 }
 struct OwnedIcon(HICON);
 impl Drop for OwnedIcon { fn drop(&mut self) { unsafe { if !self.0.is_null() { DestroyIcon(self.0); } } } }

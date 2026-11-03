@@ -1,5 +1,6 @@
 //! Manual, untested integration example: one interactive Windows desktop,
-//! one process, encrypted loopback TCP and one VP9 frame from each of up to two displays. It captures
+//! one process, encrypted loopback TCP and at least one VP9 frame from each of
+//! up to two displays. The scheduler may send extra frames. It captures
 //! private screen contents. Do not run without local user consent.
 //!
 //! This is a demo of provisional adapters, NOT a production server or security
@@ -15,15 +16,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use hbb_common::sodiumoxide::{self, crypto::sign};
     use remote_capture::displays;
     use remote_codec::{Codec, EncoderConfig};
-    use remote_core::{host_connection::HostConnection, video::VideoReceiver,
+    use remote_core::{capture_budget::{BudgetLimits, CaptureBudget}, host_connection::HostConnection, video::VideoReceiver,
+        scheduled_capture::{ScheduledCapture, ScheduledCaptureError, Step}, scheduled_session::{ScheduledSession, DriverError},
         viewer_connection::{LoginIdentity, ViewerConnection, ViewerEvent}};
     use remote_input::windows::WindowsInput;
     use remote_protocol::desktop::{DisplayInfo, PeerInfo};
-    use remote_rustdesk_websocket::{direct_tcp::{DirectTcp, DirectTcpListener, DirectTcpOptIn},
+    use remote_rustdesk_websocket::{direct_tcp::{DirectTcp, DirectTcpListener, DirectTcpOptIn}, duplex_tcp::UpgradeableEncryptedTcp,
         source_crypto::{accept_pinned_host, connect_pinned_host}};
     use remote_security::{admission::{AdmissionController, AdmissionLimits}, OwnerApproval, PasswordVerifier};
     use remote_session::{Permissions, Principal, SessionId};
-    use std::{io, time::Duration};
+    use std::{collections::BTreeSet, io, time::{Duration, Instant}};
 
     if std::env::args().nth(1).as_deref() != Some("--confirm-local-screen-capture") {
         return Err("Pass --confirm-local-screen-capture only on a disposable interactive desktop".into());
@@ -64,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Admission is obtained before the identity handshake, and retained
         // through password validation and explicit local approval.
         let permit = admission.admit(peer.ip())?;
-        let socket = accept_pinned_host(socket, HOST_ID, &secret, PREAUTH_FRAME - 16, WAIT).await?;
+        let socket = UpgradeableEncryptedTcp::new(accept_pinned_host(socket, HOST_ID, &secret, PREAUTH_FRAME - 16, WAIT).await?);
         let verifier = PasswordVerifier::new(id, principal.clone(), PASSWORD, "loopback-demo-salt", WAIT)?;
         let mut host = HostConnection::new(socket, id, WindowsInput::new(), verifier, permit, PREAUTH_FRAME - 16)?;
         host.receive_password_login(WAIT).await?;
@@ -77,20 +79,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 name: String::new(), online: d.online, cursor_embedded: false, scale: 0.0 }).collect(),
             current_display: 0, sas_enabled: false, encoding: None };
         host.send_login_success(&info, WAIT).await?;
-        let mut group = host.start_multi_capture(selections, VIDEO_FRAME)?;
-        for index in 0..display_count {
-            let mut sent = false;
-            for attempt in 0..50 {
-                match host.send_multi_capture(&mut group, index as i32, Duration::from_millis(100), WAIT, attempt * 100).await {
-                    Ok(()) => { sent = true; break; },
-                    Err(remote_core::host_connection::ConnectionError::Capture(remote_core::capture_pump::CapturePumpError::Capture(error)))
-                        if error.kind() == io::ErrorKind::WouldBlock => tokio::time::sleep(Duration::from_millis(50)).await,
-                    Err(error) => return Err(Box::<dyn std::error::Error>::from(error)),
+        let budget = CaptureBudget::new(BudgetLimits { leases: 2, streams: 2, pixels: 32 * 1024 * 1024 })?;
+        let group = host.start_multi_capture_budgeted(selections, VIDEO_FRAME, &budget)?;
+        let scheduled = match ScheduledCapture::new(group, 10) {
+            Ok(value) => value,
+            Err((error, group)) => { drop(group); host.close()?; return Err(error.into()); },
+        };
+        let mut driver = match ScheduledSession::new(host, scheduled, None) {
+            Ok(value) => value,
+            Err((error, mut host, scheduled)) => { drop(scheduled); host.close()?; return Err(error.into()); },
+        };
+        let mut remaining: BTreeSet<i32> = (0..display_count as i32).collect();
+        for attempt in 0..200 {
+            // Handle at most one queued event each iteration; this demo does
+            // not enable ACK pacing and has no permission to inject input.
+            if let Some(event) = driver.poll_event(WAIT).await? {
+                if !matches!(event, remote_core::host_connection::HostEvent::Heartbeat | remote_core::host_connection::HostEvent::ProbeReply(_)) {
+                    return Err("unexpected local viewer control event".into());
                 }
             }
-            if !sent { return Err(Box::<dyn std::error::Error>::from("capture did not produce a frame")); }
+            match driver.capture_step(Instant::now(), Duration::from_millis(100), WAIT, attempt * 100).await {
+                Ok(Step::Sent(index)) => { remaining.remove(&index); },
+                Ok(Step::Wait(delay)) => tokio::time::sleep(delay.min(Duration::from_millis(50))).await,
+                Err(DriverError::Capture(ScheduledCaptureError::Connection(remote_core::host_connection::ConnectionError::Capture(remote_core::capture_pump::CapturePumpError::Capture(error)))))
+                    if error.kind() == io::ErrorKind::WouldBlock => tokio::time::sleep(Duration::from_millis(50)).await,
+                Err(error) => return Err(error.into()),
+            }
+            if remaining.is_empty() { break; }
         }
-        host.stop_multi_capture(&mut group)?; drop(group); host.close()?;
+        if !remaining.is_empty() { return Err("capture did not produce each frame".into()); }
+        driver.close()?; drop(driver);
+        if budget.usage()?.streams != 0 { return Err("capture reservations were not released".into()); }
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     let viewer = async {
@@ -100,16 +119,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let identity = LoginIdentity { target: HOST_ID.into(), viewer_id: "local-viewer".into(), viewer_name: "demo".into(), wire_session_id: 1, version: "demo".into() };
         viewer.login(&identity, PASSWORD, WAIT).await?;
         viewer.set_connected_message_limit(VIDEO_FRAME)?;
-        for expected in 0..display_count {
-            let envelope = match viewer.receive(WAIT).await? {
-                ViewerEvent::Video { display, envelope, .. } if display == expected as i32 => envelope,
+        let mut remaining: BTreeSet<i32> = (0..display_count as i32).collect();
+        for _ in 0..200 {
+            let (display, envelope) = match viewer.receive(WAIT).await? {
+                ViewerEvent::Video { display, envelope, .. } => (display, envelope),
                 _ => return Err(Box::<dyn std::error::Error>::from("unexpected demo message")),
             };
-            // Fresh decoder per locally generated stream, never an untrusted peer.
+            if !remaining.remove(&display) { continue; }
+            // Fresh decoder for the first locally generated frame on each stream.
             let mut decoder = VideoReceiver::new(Codec::Vp9, VIDEO_FRAME)?;
             let frame = decoder.decode(&envelope)?.ok_or("no decoded frame")?;
-            println!("Decoded local display {expected}: {}x{}, {} bytes", frame.frame.width, frame.frame.height, frame.frame.data.len());
+            println!("Decoded local display {display}: {}x{}, {} bytes", frame.frame.width, frame.frame.height, frame.frame.data.len());
+            if remaining.is_empty() { break; }
         }
+        if !remaining.is_empty() { return Err("viewer did not receive every display".into()); }
         viewer.close();
         Ok::<(), Box<dyn std::error::Error>>(())
     };

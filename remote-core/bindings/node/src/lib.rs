@@ -325,7 +325,15 @@ pub fn encode_cursor_id(id: String) -> Result<Buffer> {
 }
 
 /// Provisional, pinned-source direct TCP viewer binding.
+mod display_wire;
 mod viewer;
+mod viewer_fps;
+mod viewer_video_queue;
+mod viewer_cursor;
 mod local_host;
 
 mod trusted_decode;
+mod trusted_stream_worker;
+
+/// Read-only Windows display mode enumeration.
+mod windows_modes;

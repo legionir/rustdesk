@@ -7,6 +7,18 @@ publish = false
 [dependencies]
 remote-session = { path = "../remote-session" }
 sha2 = "0.10"
+hmac = "0.12"
 subtle = "2.6"
 zeroize = "1.8"
 getrandom = "0.2"
+
+[features]
+default = []
+# Optional reuse of the exact crate version already locked by RustDesk.
+source-totp = ["dep:totp-rs"]
+
+[dependencies.totp-rs]
+version = "=5.5.1"
+default-features = false
+features = ["otpauth"]
+optional = true

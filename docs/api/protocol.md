@@ -33,6 +33,12 @@ modes remain intact but are not handled by the desktop view. The fields are
 untrusted, and the adapter does not enforce 2FA, token validation, owner
 approval, peer identity, or message replay protection.
 
+**Blocking Windows input safety gate:** static source inspection identified a
+potentially out-of-bounds error-formatting buffer in the pinned Enigo Windows
+backend. Do not invoke the experimental native Windows input adapter until the
+issue in `../analysis/windows-enigo-error-gate.md` is resolved and reviewed.
+These protocol adapters do not make a remote host's implementation safe.
+
 The experimental `windows_mouse::dispatch` handles a limited subset of mouse
 messages through the session guard: absolute/relative movement, five buttons,
 and ordinary Windows wheel events. Its constants and Windows wheel signs/units
@@ -44,13 +50,16 @@ binding or a trusted consent flow. Its distinct mouse permission differs from
 upstream's shared keyboard gate and must be reviewed. Tests use a fake backend
 and have not been run; real Windows desktop behavior is unverified.
 
-`windows_keyboard::dispatch` accepts only a restricted set of unmodified
-legacy `ControlKey` messages, using the source's Windows virtual-key mappings.
-It rejects modifier keys/lists, lock and system actions, text, scan codes and
-other modes. Unlike RustDesk it does not synchronize OS modifier state, perform
-portable-service/desktop switching or generate repeats, so even supported keys
-are not a claim of complete compatibility. Its fake-backend tests are written
-but not run; real input delivery is unverified.
+`windows_keyboard::dispatch` accepts a restricted set of unmodified legacy
+`ControlKey` messages and bounded BMP Unicode/sequence text. Control keys use
+source Windows virtual-key mappings; non-BMP text, modifier keys/lists, lock
+and system actions, scan codes and other modes are rejected by this default
+path. Separately opted-in paths handle narrower Map/Translate positions, repeat
+and source-style supplementary text with different risks; they do not provide
+full source compatibility. The dispatcher does not synchronize OS modifier
+state or perform portable-service/desktop switching. Fake-backend tests are
+written but unrun; real input delivery is unverified and blocked by the safety
+gate above.
 
 With the `hwcodec` feature, `HardwareVideoSender` can pack H.264/H.265 RAM
 encoder output into the existing RustDesk VideoFrame oneof and send it through
@@ -140,3 +149,56 @@ permission or evidence of cursor location. The Node viewer sends queries and exp
 explicit confirmation; the peer might actually change its OS resolution. The
 Node loopback host remains view-only and
 does not automatically reply to queries. All of this remains unverified.
+
+Experimental pointer wire adapters represent existing TouchEvent scale and pan
+variants. The Windows host scale path is opt-in, requires both mouse and keyboard
+permissions, rejects untracked modifiers/pan and blocks unrelated remote input
+while Control is held. It cannot prevent local human or other process input and
+does not implement source portable-service routing. A zero scale ends a gesture;
+the Node loopback host remains view-only. New code is not yet built/tested.
+
+### Second-factor wire messages (experimental)
+
+The existing `Auth2FA` fields and exact source login-error strings can be
+constructed/inspected with `remote_protocol::two_factor`. This is parsing only;
+peer code, hardware ID and trust requests are untrusted, may survive in
+protobuf/network memory copies, and must not be logged. Locally the adapter
+accepts 6–8 ASCII digits and hardware IDs up to 256 bytes; these are not source
+wire limits. It neither verifies TOTP nor enrolls trusted devices. The current
+basic viewer continues to fail closed when a server requests 2FA. A separate
+explicit viewer opt-in can send one pre-obtained code after the exact prompt;
+it cannot verify the peer or that the peer checked the code. The current host
+does not implement a 2FA login flow. Do not treat the independent gate and its
+caller-provided verifier as integrated authentication or production security.
+
+An optional `remote-security/source-totp` feature separately wraps the locked
+source `totp-rs` verifier with source parameters. It neither provisions secrets
+nor modifies the login gate. Secret wiping is best-effort and a valid code can
+be reused across independent sessions without an external replay store. The
+feature, protocol adapter and gate are unbuilt, untested and unaudited; enabling
+them must not be interpreted as enforcing 2FA.
+
+Illustrative local composition (not a login integration):
+
+```rust,ignore
+// Only after an authenticated channel, password check and real local approval;
+// provision the secret securely and obtain code without logging it.
+let totp = remote_security::source_totp::SourceTotp::new(secret_bytes, 6)?;
+let mut gate = remote_security::two_factor_gate::SecondFactorGate::new(
+    session_id, principal.clone(), std::time::Duration::from_secs(30), 3,
+)?;
+let result = gate.submit(session_id, &principal, &code, |candidate| {
+    totp.check_current(candidate).map_err(|_| ())
+})?;
+// Match Accepted(proof) or Wrong { remaining }; consuming a local proof does
+// not change the current HostConnection state or enforce the host login policy.
+```
+
+The `source-totp` Cargo feature is required. In a real application, codes must
+also be rate-limited and protected against concurrent/replayed attempts across
+sessions; this example does neither.
+
+The viewer's outgoing code uses `SensitiveTwoFactorEnvelope`, which zeroizes
+its current protobuf code string when the guard is dropped, plus a zeroized
+serialized buffer. This does not erase JS/caller strings, unguarded envelopes,
+protobuf temporary or transport copies, reallocations, crash dumps or swap.

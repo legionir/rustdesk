@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use hbb_common::sodiumoxide::{self, crypto::sign};
     use remote_capture::displays;
     use remote_codec::{Codec, EncoderConfig};
-    use remote_core::{host_connection::HostConnection, video::VideoReceiver,
+    use remote_core::{capture_budget::{BudgetLimits, CaptureBudget}, host_connection::HostConnection, video::VideoReceiver,
         viewer_connection::{LoginIdentity, ViewerConnection, ViewerEvent}};
     use remote_input::windows::WindowsInput;
     use remote_protocol::desktop::{DisplayInfo, PeerInfo};
@@ -72,7 +72,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 name: String::new(), online: metadata.online, cursor_embedded: false, scale: 0.0 }],
             current_display: 0, sas_enabled: false, encoding: None };
         host.send_login_success(&info, WAIT).await?;
-        let mut pump = host.start_capture(display, 0, config, VIDEO_FRAME)?;
+        let budget = CaptureBudget::new(BudgetLimits { leases: 1, streams: 1, pixels: u64::from(width) * u64::from(height) })?;
+        let mut pump = host.start_capture_budgeted(display, 0, config, VIDEO_FRAME, &budget)?;
         let mut sent = false;
         for attempt in 0..50 {
             match host.send_capture(&mut pump, Duration::from_millis(100), WAIT, attempt * 100).await {
@@ -83,7 +84,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         if !sent { return Err(Box::<dyn std::error::Error>::from("capture did not produce a frame")); }
-        host.stop_capture(&mut pump)?; drop(pump); host.close()?;
+        host.stop_capture(&mut pump)?; drop(pump);
+        if budget.usage()?.streams != 0 { return Err("capture reservation was not released".into()); }
+        host.close()?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     let viewer = async {

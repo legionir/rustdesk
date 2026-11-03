@@ -1,36 +1,106 @@
 //! Experimental integration of the session guard and input controller.
 //!
-//! This is not yet the final RemoteCore facade. It does not provide secure
-//! networking, credential validation, session-ID generation, a viewer, or
-//! capture task orchestration. It must not be exposed to untrusted peers until
-//! those layers and OS-level authorization have been reviewed and tested.
+//! This is not yet the final RemoteCore facade. Experimental transport,
+//! credential, viewer and capture helpers cover only documented subsets;
+//! they do not establish production security, trusted consent or full source
+//! parity. Applications must generate and bind session identifiers, enforce
+//! policy, and review and test OS and network behavior before deployment.
 
 /// Optional single-controller arbitration within a cooperating process.
 pub mod input_arbiter;
 /// On-demand capture and video delivery for an authorized session.
 pub mod capture_pump;
+/// Cooperative capture admission accounting, not a native memory cap.
+pub mod capture_budget;
 /// Experimental, caller-driven host connection; not a secure remote server.
 pub mod host_connection;
 /// Optional source-key-exchange admission composition.
 #[cfg(feature = "source-security")]
 pub mod admitted_host;
+/// Explicit direct TCP listener with bounded pre-auth admission.
+#[cfg(feature = "source-security")]
+pub mod direct_host;
+/// Explicit WSS listener with pre-TLS admission.
+#[cfg(feature = "source-security")]
+pub mod wss_host;
 /// Experimental caller-driven viewer transport and protocol demultiplexing.
 pub mod viewer_connection;
+/// Caller-driven bounded viewer FPS and refresh decisions derived from source.
+pub mod viewer_fps;
+/// Caller-driven source-style decode-speed measurement bookkeeping.
+pub mod viewer_decode_fps;
+/// Caller-driven source UI-callback frame-rate accounting.
+pub mod viewer_frame_rate;
+/// Conservative bounded caller-driven compressed viewer frame queue.
+pub mod viewer_video_queue;
+/// Caller-owned bounded per-peer cursor selection; no renderer.
+pub mod viewer_cursor;
 /// Optional keyframe/loss bookkeeping for one video stream.
 pub mod video_sync;
 /// Bounded per-display video synchronization bookkeeping.
 pub mod video_streams;
+/// Explicitly trusted-only software multi-display video decoding.
+pub mod trusted_video_streams;
 /// Caller-driven source-style video pacing and probe/ACK bookkeeping.
 pub mod video_schedule;
+/// Explicit, caller-driven source-style delay probe/QoS bridge.
+pub mod probe_qos;
+/// Caller-driven bounded frame wait tracking.
+pub mod frame_wait;
+/// Caller-driven paced multi-display capture, with no background tasks.
+pub mod scheduled_capture;
+/// Explicit single-session read-ahead and scheduled-capture composition.
+pub mod scheduled_session;
+/// Opt-in bounded service loop for an already approved scheduled session.
+#[cfg(feature = "source-security")]
+pub mod bounded_host_loop;
+/// Side-effect-free source Windows DXGI access-lost recovery bookkeeping.
+pub mod dxgi_recovery;
+/// Side-effect-free model of source static-frame refresh scheduling.
+pub mod static_refresh;
+/// Opt-in, caller-driven source-style scheduled static refresh.
+pub mod scheduled_refresh;
+/// Explicit caller-driven bridge for source video preference updates.
+pub mod video_preferences;
 /// Caller-driven planning for source multi-display subscriptions.
 pub mod display_selection;
 /// Construct bounded metadata from explicitly enumerated display handles.
 pub mod display_metadata;
+/// Source-style cursor-follow display hints, without side effects.
+pub mod cursor_follow;
+/// Source-style bounded cursor echo exclusion bookkeeping.
+pub mod cursor_echo;
+/// Explicit per-session source cursor-shape delivery bookkeeping.
+pub mod cursor_delivery;
+/// Optional local-only stale-key bookkeeping; no input injection.
+pub mod key_expiry;
+/// Source-style caller-driven authorized-session inactivity accounting.
+pub mod idle_timeout;
+/// Optional caller-driven source receive-liveness bookkeeping.
+pub mod receive_watchdog;
+/// Source-style caller-driven foreground window follow hints.
+pub mod window_follow;
+/// Side-effect-free validation and planning for resolution requests.
+pub mod resolution_plan;
+/// Convert read-only Windows mode snapshots to bounded wire metadata.
+#[cfg(target_os = "windows")]
+pub mod windows_mode_metadata;
+/// Caller-owned, side-effect-free resolution recovery bookkeeping.
+pub mod resolution_history;
 /// Experimental Windows DXGI/VRAM session-bound capture.
 #[cfg(all(target_os = "windows", feature = "vram"))]
 pub mod vram_pump;
 /// Opt-in local tracked-modifier input subset.
 pub mod tracked_modifiers;
+/// Opt-in source-style Windows touch scale handling.
+pub mod windows_touch;
+pub mod windows_translate_text_plan;
+/// Side-effect-free restricted Windows lock synchronization planning.
+pub mod windows_lock_plan;
+/// Read-only source Windows-to-Windows hotkey branch planning.
+pub mod windows_hotkey_plan;
+/// Read-only source Windows session eligibility planning; no OS switching.
+pub mod windows_session_plan;
 
 use std::{error::Error, fmt};
 use remote_input::{InputBackend, InputController, InputError, MouseButton, ScanCode, VirtualKey};
@@ -72,11 +142,13 @@ impl From<InputError> for HostInputError { fn from(error: InputError) -> Self { 
 pub struct HostInputSession<B: InputBackend> {
     session: Session,
     input: InputController<B>,
+    // Separate from locally granted permissions; this never grants input.
+    peer_input_disabled: bool,
 }
 impl<B: InputBackend> HostInputSession<B> {
     /// Construct a session and input controller with all permissions denied.
     pub fn new(id: SessionId, backend: B) -> Self {
-        Self { session: Session::new(id), input: InputController::new(backend) }
+        Self { session: Session::new(id), input: InputController::new(backend), peer_input_disabled: false }
     }
     /// Current session identifier.
     pub fn id(&self) -> SessionId { self.session.id() }
@@ -98,7 +170,8 @@ impl<B: InputBackend> HostInputSession<B> {
         self.session.authenticate(credential, requested, auth, policy)?;
         let allowed = self.session.permissions();
         if let Err(error) = self.input.set_permissions(remote_input::Permissions {
-            mouse: allowed.control_mouse, keyboard: allowed.control_keyboard,
+            mouse: allowed.control_mouse && !self.peer_input_disabled,
+            keyboard: allowed.control_keyboard && !self.peer_input_disabled,
         }) {
             let _ = self.session.fail();
             return Err(HostInputError::Input(error));
@@ -113,13 +186,36 @@ impl<B: InputBackend> HostInputSession<B> {
         self.session.restrict_permissions(permissions)?;
         let allowed = self.session.permissions();
         if let Err(error) = self.input.set_permissions(remote_input::Permissions {
-            mouse: allowed.control_mouse, keyboard: allowed.control_keyboard,
+            mouse: allowed.control_mouse && !self.peer_input_disabled,
+            keyboard: allowed.control_keyboard && !self.peer_input_disabled,
         }) {
             let _ = self.session.fail();
             return Err(HostInputError::Input(error));
         }
         Ok(())
     }
+    /// Apply a peer input-disable preference after a trusted caller explicitly
+    /// accepts it. Both input classes are suppressed, matching the source's
+    /// combined keyboard gate. This never changes local authorization. Disabling
+    /// denies new input and attempts to release this controller's held inputs;
+    /// enabling restores only permissions still locally granted. On detectable
+    /// cleanup failure the session fails and must be closed; OS delivery is not
+    /// guaranteed. This is not automatic dispatch of untrusted wire options.
+    pub(crate) fn set_peer_input_disabled(&mut self, disabled: bool) -> Result<(), HostInputError> {
+        if !matches!(self.session.state(), SessionState::Connected | SessionState::Streaming) {
+            return Err(HostInputError::Session(SessionError::InvalidState { state: self.session.state(), operation: "change peer input gate" }));
+        }
+        self.peer_input_disabled = disabled;
+        let local = self.session.permissions();
+        if let Err(error) = self.input.set_permissions(remote_input::Permissions {
+            mouse: local.control_mouse && !disabled, keyboard: local.control_keyboard && !disabled,
+        }) {
+            let _ = self.session.fail();
+            return Err(HostInputError::Input(error));
+        }
+        Ok(())
+    }
+    pub(crate) fn peer_input_disabled(&self) -> bool { self.peer_input_disabled }
     /// Mark an authorized session as streaming once the caller has prepared capture.
     /// This does not itself create a capture task or start a transport.
     pub fn start_streaming(&mut self) -> Result<(), HostInputError> {
@@ -224,6 +320,10 @@ impl<B: InputBackend> HostInputSession<B> {
         self.input.key_down(key)?;
         Ok(())
     }
+    /// Authorized explicit repeated virtual-key down. No OS-wide state check.
+    pub fn key_down_with_repeat(&mut self, key: VirtualKey) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?; self.input.key_down_with_repeat(key)?; Ok(())
+    }
     /// Release a Windows virtual key, after authorization.
     pub fn key_up(&mut self, key: VirtualKey) -> Result<(), HostInputError> {
         self.session.check(Action::ControlKeyboard)?;
@@ -240,6 +340,10 @@ impl<B: InputBackend> HostInputSession<B> {
     pub fn scan_down(&mut self, code: ScanCode) -> Result<(), HostInputError> {
         self.session.check(Action::ControlKeyboard)?; self.input.scan_down(code)?; Ok(())
     }
+    /// Authorized explicit repeated scan-code down.
+    pub fn scan_down_with_repeat(&mut self, code: ScanCode) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?; self.input.scan_down_with_repeat(code)?; Ok(())
+    }
     /// Release a tracked physical Windows scan code after keyboard authorization.
     pub fn scan_up(&mut self, code: ScanCode) -> Result<(), HostInputError> {
         self.session.check(Action::ControlKeyboard)?; self.input.scan_up(code)?; Ok(())
@@ -247,6 +351,10 @@ impl<B: InputBackend> HostInputSession<B> {
     /// Inject a source rdev raw Windows virtual key after authorization.
     pub fn raw_virtual_down(&mut self, key: VirtualKey) -> Result<(), HostInputError> {
         self.session.check(Action::ControlKeyboard)?; self.input.raw_virtual_down(key)?; Ok(())
+    }
+    /// Authorized explicit repeated raw virtual-key down.
+    pub fn raw_virtual_down_with_repeat(&mut self, key: VirtualKey) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?; self.input.raw_virtual_down_with_repeat(key)?; Ok(())
     }
     pub fn raw_virtual_up(&mut self, key: VirtualKey) -> Result<(), HostInputError> {
         self.session.check(Action::ControlKeyboard)?; self.input.raw_virtual_up(key)?; Ok(())
@@ -257,6 +365,12 @@ impl<B: InputBackend> HostInputSession<B> {
         self.session.check(Action::ControlKeyboard)?;
         self.input.type_text(text)?;
         Ok(())
+    }
+    /// Explicit pinned Windows Enigo supplementary Unicode path. This is not
+    /// local consent, complete SendInput error reporting or OS-global exclusion.
+    pub fn type_text_source_windows(&mut self, text: &str, opt_in: remote_input::SourceWindowsUnicodeOptIn) -> Result<(), HostInputError> {
+        self.session.check(Action::ControlKeyboard)?;
+        self.input.type_text_source_windows(text, opt_in)?; Ok(())
     }
     /// Revoke access and attempt both input and session cleanup.
     ///
@@ -417,6 +531,11 @@ pub mod windows_keyboard {
     /// modifier repair, repeat or translate mode. Caller must explicitly opt in,
     /// bind an authorized Windows peer and ensure exclusive OS input ownership.
     pub fn dispatch_map<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
+        dispatch_map_with_repeat(host, envelope, false)
+    }
+    /// Caller explicitly selects whether repeated down messages reach the OS.
+    /// This is not OS-wide input arbitration or proof of local consent.
+    pub fn dispatch_map_with_repeat<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope, repeat: bool) -> Result<(), DispatchError> {
         host.session.check(remote_session::Action::ControlKeyboard).map_err(HostInputError::from)?;
         let event = envelope.keyboard()?;
         if event.mode() != 1 || event.press() || event.modifiers().next().is_some() {
@@ -424,7 +543,7 @@ pub mod windows_keyboard {
         }
         let raw = match event.payload() { Some(KeyboardPayload::Position(value)) => value, _ => return Err(DispatchError::Unsupported("map-mode requires a position scan code")) };
         let code = remote_input::ScanCode::new(raw).map_err(|_| DispatchError::Unsupported("invalid Windows scan code"))?;
-        if event.down() { host.scan_down(code)?; } else { host.scan_up(code)?; }
+        if event.down() { if repeat { host.scan_down_with_repeat(code)?; } else { host.scan_down(code)?; } } else { host.scan_up(code)?; }
         Ok(())
     }
     /// Restricted Windows Translate-mode `Chr` handling. Source
@@ -434,6 +553,11 @@ pub mod windows_keyboard {
     /// hotkeys; it does not synchronize OS state or switch desktops. The input
     /// controller rejects mixed representations while any keys are held.
     pub fn dispatch_translate<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
+        dispatch_translate_with_repeat(host, envelope, false)
+    }
+    /// Caller explicitly selects whether repeated down messages reach the OS.
+    /// This is not OS-wide input arbitration or proof of local consent.
+    pub fn dispatch_translate_with_repeat<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope, repeat: bool) -> Result<(), DispatchError> {
         host.session.check(remote_session::Action::ControlKeyboard).map_err(HostInputError::from)?;
         let event = envelope.keyboard()?;
         if event.mode() != 2 || event.press() || event.modifiers().next().is_some() {
@@ -443,10 +567,30 @@ pub mod windows_keyboard {
         let vk = raw >> 16;
         if vk == 0 {
             let code = ScanCode::new(raw).map_err(|_| DispatchError::Unsupported("invalid Windows scan code"))?;
-            if event.down() { host.scan_down(code)?; } else { host.scan_up(code)?; }
+            if event.down() { if repeat { host.scan_down_with_repeat(code)?; } else { host.scan_down(code)?; } } else { host.scan_up(code)?; }
         } else {
             let key = u16::try_from(vk).ok().and_then(|value| VirtualKey::new(value).ok()).ok_or(DispatchError::Unsupported("invalid Windows virtual key"))?;
-            if event.down() { host.raw_virtual_down(key)?; } else { host.raw_virtual_up(key)?; }
+            if event.down() { if repeat { host.raw_virtual_down_with_repeat(key)?; } else { host.raw_virtual_down(key)?; } } else { host.raw_virtual_up(key)?; }
+        }
+        Ok(())
+    }
+    /// Explicitly dispatch only source legacy Unicode/sequence text using the
+    /// pinned Windows Enigo semantics. It permits non-BMP surrogate downs and
+    /// therefore has the token's delivery/cleanup risks. Caller must establish
+    /// local consent, desktop and OS-wide exclusive ownership. Other keyboard
+    /// paths and peer input cannot be allowed to race this operation.
+    pub fn dispatch_source_unicode<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope,
+        opt_in: remote_input::SourceWindowsUnicodeOptIn) -> Result<(), DispatchError> {
+        host.session.check(remote_session::Action::ControlKeyboard).map_err(HostInputError::from)?;
+        let event = envelope.keyboard()?;
+        if event.mode() != 0 || event.modifiers().next().is_some() { return Err(DispatchError::Unsupported("unsupported Unicode flags or modifiers")); }
+        match event.payload() {
+            Some(KeyboardPayload::Unicode(value)) => {
+                let character = char::from_u32(value).ok_or(DispatchError::Unsupported("invalid Unicode scalar"))?;
+                host.type_text_source_windows(&character.to_string(), opt_in)?;
+            },
+            Some(KeyboardPayload::Sequence(text)) => host.type_text_source_windows(text, opt_in)?,
+            _ => return Err(DispatchError::Unsupported("requires Unicode or sequence")),
         }
         Ok(())
     }
@@ -459,6 +603,11 @@ pub mod windows_keyboard {
     /// portable service. Unicode and sequence variants are injected on every
     /// received event as in the source legacy handler, regardless of down/press. Those limitations can affect even accepted keys.
     pub fn dispatch<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope) -> Result<(), DispatchError> {
+        dispatch_with_repeat(host, envelope, false)
+    }
+    /// Caller explicitly selects whether repeated down messages reach the OS.
+    /// This is not OS-wide input arbitration or proof of local consent.
+    pub fn dispatch_with_repeat<B: InputBackend>(host: &mut HostInputSession<B>, envelope: &Envelope, repeat: bool) -> Result<(), DispatchError> {
         host.session.check(remote_session::Action::ControlKeyboard).map_err(HostInputError::from)?;
         let event = envelope.keyboard()?;
         if event.mode() != 0 { return Err(DispatchError::Unsupported("non-legacy keyboard mode")); }
@@ -468,7 +617,7 @@ pub mod windows_keyboard {
                 let code = plain_control_vk(value).ok_or(DispatchError::Unsupported("modifier, system, or unknown control key"))?;
                 let key = VirtualKey::new(code).map_err(|_| DispatchError::Unsupported("invalid virtual key"))?;
                 if event.press() { host.key_press(key)?; }
-                else if event.down() { host.key_down(key)?; }
+                else if event.down() { if repeat { host.key_down_with_repeat(key)?; } else { host.key_down(key)?; } }
                 else { host.key_up(key)?; }
             },
             Some(KeyboardPayload::Unicode(value)) => {
@@ -509,6 +658,8 @@ pub mod video {
         Network(remote_transport::NetworkTransportError),
         /// The codec requires resetting before another frame can be sent.
         EncoderResetRequired,
+        /// No successful cached packed input is available for repeating.
+        NoRepeatableInput,
         /// The wire codec is not supported by this software decoder.
         UnsupportedCodec,
         /// The received codec does not match the configured decoder.
@@ -523,6 +674,7 @@ pub mod video {
                 Self::Transport(e) => write!(f, "transport: {e}"),
                 Self::Network(e) => write!(f, "network: {e}"),
                 Self::EncoderResetRequired => f.write_str("encoder must be reset"),
+                Self::NoRepeatableInput => f.write_str("no repeatable packed input"),
                 Self::UnsupportedCodec => f.write_str("unsupported video codec"),
                 Self::CodecMismatch => f.write_str("received video codec differs from configured decoder"),
             }
@@ -540,6 +692,19 @@ pub mod video {
     }
     fn software_codec(codec: VideoCodec) -> Result<Codec, VideoError> {
         match codec { VideoCodec::Vp8 => Ok(Codec::Vp8), VideoCodec::Vp9 => Ok(Codec::Vp9), VideoCodec::Av1 => Ok(Codec::Av1), _ => Err(VideoError::UnsupportedCodec) }
+    }
+
+    /// Result of an explicit source-aware software encode/send attempt.
+    /// `VpxNoOutput` sends nothing and is not an ACK or evidence of rendering.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum SendOutcome { Sent, VpxNoOutput }
+
+    fn outcome_wire(codec: Codec, display: i32, outcome: remote_codec::EncodeOutcome, limit: usize) -> Result<Option<Vec<u8>>, VideoError> {
+        let encoded = match outcome { remote_codec::EncodeOutcome::Frame(frame) => frame, remote_codec::EncodeOutcome::VpxNoOutput => return Ok(None) };
+        let packets: Vec<OwnedVideoPacket> = encoded.packets.into_iter().map(|packet| OwnedVideoPacket {
+            data: packet.data, key: packet.key, pts: packet.pts,
+        }).collect();
+        Ok(Some(Envelope::video_event(display, wire_codec(codec), &packets)?.encode(limit)?))
     }
 
     /// A single software encoder that writes RustDesk protobuf video envelopes.
@@ -566,6 +731,9 @@ pub mod video {
             self.encoder = Some(encoder);
             Ok(())
         }
+        /// Discard predictive state before an explicit backend transition.
+        #[cfg(target_os = "windows")]
+        pub(crate) fn invalidate(&mut self) { self.encoder = None; }
         /// Whether the encoder must be recreated after a failed/cancelled send.
         pub fn needs_reset(&self) -> bool { self.encoder.is_none() }
         /// Source-reported encoder bitrate and dynamic-quality capability.
@@ -573,6 +741,12 @@ pub mod video {
             let encoder = self.encoder.as_ref().ok_or(VideoError::EncoderResetRequired)?;
             Ok((encoder.bitrate(), encoder.supports_quality_change()))
         }
+        /// Whether a previously converted packed frame can be repeated. This
+        /// is local bookkeeping, not current authorization or delivery proof.
+        pub fn has_repeatable_input(&self) -> bool { self.encoder.as_ref().map_or(false, |encoder| encoder.has_repeatable_input()) }
+        /// Forget the wrapper-owned converted pixels immediately where possible.
+        /// Native codec buffers and external copies remain outside this action.
+        pub fn clear_repeat_input(&mut self) { if let Some(encoder) = self.encoder.as_mut() { encoder.clear_repeat_input(); } }
         /// Change quality in place. A backend failure discards the encoder,
         /// because its state after a partial native mutation is unknown.
         pub fn set_quality(&mut self, quality: f32) -> Result<(), VideoError> {
@@ -649,6 +823,120 @@ pub mod video {
             transport.send(&wire, deadline).await?;
             self.encoder = Some(encoder);
             Ok(())
+        }
+    }
+
+    impl VideoSender {
+        /// Explicitly resend cached screen input over network transport after a
+        /// fresh local authorization check. The opt-in is an assertion, not a
+        /// consent UI; the caller must enforce privacy, age and repeat limits,
+        /// service input/ACKs, and coordinate decoder recovery. No capture is
+        /// performed and no scheduler is started. Failed or cancelled I/O,
+        /// native no-output and serialization errors discard the encoder; never
+        /// blindly retry uncertain delivery. This is narrower than source VPX
+        /// static refresh because it cannot distinguish native no-output errors.
+        pub async fn send_repeat_network(&mut self, session: &Session, transport: &mut dyn remote_transport::NetworkTransport,
+            display: i32, pts_ms: i64, deadline: Duration, opt_in: remote_codec::RepeatFrameOptIn) -> Result<(), VideoError> {
+            if session.state() != SessionState::Streaming {
+                return Err(VideoError::Session(SessionError::InvalidState { state: session.state(), operation: "repeat video" }));
+            }
+            session.check(Action::ViewScreen)?;
+            if deadline.is_zero() { return Err(VideoError::Codec(io::Error::new(io::ErrorKind::InvalidInput, "zero deadline"))); }
+            if self.needs_reset() { return Err(VideoError::EncoderResetRequired); }
+            if !self.has_repeatable_input() { return Err(VideoError::NoRepeatableInput); }
+            let mut encoder = self.encoder.take().ok_or(VideoError::EncoderResetRequired)?;
+            let encoded = encoder.repeat_packed(pts_ms, opt_in)?;
+            let packets: Vec<OwnedVideoPacket> = encoded.packets.into_iter().map(|packet| OwnedVideoPacket {
+                data: packet.data, key: packet.key, pts: packet.pts,
+            }).collect();
+            let wire = Envelope::video_event(display, wire_codec(self.config.codec), &packets)?.encode(self.max_envelope_bytes)?;
+            transport.send(&wire, deadline).await?;
+            self.encoder = Some(encoder);
+            Ok(())
+        }
+    }
+
+    impl VideoSender {
+        /// Explicit source-aware software encode/send. A typed VPX no-output
+        /// retains the encoder and cached input, sends no envelope, and returns
+        /// `VpxNoOutput`. Any other native/serialization/send failure or an
+        /// in-flight cancellation discards the encoder. The application must
+        /// enforce session authorization, input retention, repeat pacing and
+        /// decoder recovery; this does not run the source service or prove
+        /// delivery. The older `send_packed_network` retains its semantics.
+        pub async fn send_packed_network_outcome(&mut self, session: &Session, transport: &mut dyn remote_transport::NetworkTransport,
+            display: i32, pixels: &[u8], stride: usize, format: PackedFormat, pts_ms: i64, deadline: Duration) -> Result<SendOutcome, VideoError> {
+            if session.state() != SessionState::Streaming {
+                return Err(VideoError::Session(SessionError::InvalidState { state: session.state(), operation: "send video" }));
+            }
+            session.check(Action::ViewScreen)?;
+            if deadline.is_zero() || display < 0 { return Err(VideoError::Codec(io::Error::new(io::ErrorKind::InvalidInput, "invalid deadline or display"))); }
+            let mut encoder = self.encoder.take().ok_or(VideoError::EncoderResetRequired)?;
+            let outcome = encoder.encode_packed_outcome(pixels, stride, format, pts_ms)?;
+            let wire = outcome_wire(self.config.codec, display, outcome, self.max_envelope_bytes)?;
+            let result = if let Some(wire) = wire {
+                transport.send(&wire, deadline).await?;
+                SendOutcome::Sent
+            } else { SendOutcome::VpxNoOutput };
+            self.encoder = Some(encoder);
+            Ok(result)
+        }
+        /// In-process-transport counterpart of `send_packed_network_outcome`.
+        /// A no-output result enqueues nothing and retains the encoder. The
+        /// local transport's cancellation guarantee does not prove rendering.
+        pub async fn send_packed_outcome(&mut self, session: &Session, transport: &mut dyn Transport,
+            display: i32, pixels: &[u8], stride: usize, format: PackedFormat, pts_ms: i64, deadline: Duration) -> Result<SendOutcome, VideoError> {
+            if session.state() != SessionState::Streaming {
+                return Err(VideoError::Session(SessionError::InvalidState { state: session.state(), operation: "send video" }));
+            }
+            session.check(Action::ViewScreen)?;
+            if deadline.is_zero() || display < 0 { return Err(VideoError::Codec(io::Error::new(io::ErrorKind::InvalidInput, "invalid deadline or display"))); }
+            let mut encoder = self.encoder.take().ok_or(VideoError::EncoderResetRequired)?;
+            let outcome = encoder.encode_packed_outcome(pixels, stride, format, pts_ms)?;
+            let wire = outcome_wire(self.config.codec, display, outcome, self.max_envelope_bytes)?;
+            let result = if let Some(wire) = wire { transport.send(&wire, deadline).await?; SendOutcome::Sent } else { SendOutcome::VpxNoOutput };
+            self.encoder = Some(encoder); Ok(result)
+        }
+        /// In-process counterpart of `send_repeat_network_outcome`. The caller
+        /// remains responsible for consent, freshness, pacing and revocation.
+        pub async fn send_repeat_outcome(&mut self, session: &Session, transport: &mut dyn Transport,
+            display: i32, pts_ms: i64, deadline: Duration, opt_in: remote_codec::RepeatFrameOptIn) -> Result<SendOutcome, VideoError> {
+            if session.state() != SessionState::Streaming {
+                return Err(VideoError::Session(SessionError::InvalidState { state: session.state(), operation: "repeat video" }));
+            }
+            session.check(Action::ViewScreen)?;
+            if deadline.is_zero() || display < 0 { return Err(VideoError::Codec(io::Error::new(io::ErrorKind::InvalidInput, "invalid deadline or display"))); }
+            if self.needs_reset() { return Err(VideoError::EncoderResetRequired); }
+            if !self.has_repeatable_input() { return Err(VideoError::NoRepeatableInput); }
+            let mut encoder = self.encoder.take().ok_or(VideoError::EncoderResetRequired)?;
+            let outcome = encoder.repeat_packed_outcome(pts_ms, opt_in)?;
+            let wire = outcome_wire(self.config.codec, display, outcome, self.max_envelope_bytes)?;
+            let result = if let Some(wire) = wire { transport.send(&wire, deadline).await?; SendOutcome::Sent } else { SendOutcome::VpxNoOutput };
+            self.encoder = Some(encoder); Ok(result)
+        }
+        /// Source-aware repeat of a locally retained converted screen frame.
+        /// This rechecks view permission but the opt-in is not proof of owner
+        /// consent. Caller must bound image age/repeats, apply ACK policy and
+        /// ensure the desktop and viewer still correspond to the cached frame.
+        /// Failed/cancelled sends are indeterminate and require reset/closure.
+        pub async fn send_repeat_network_outcome(&mut self, session: &Session, transport: &mut dyn remote_transport::NetworkTransport,
+            display: i32, pts_ms: i64, deadline: Duration, opt_in: remote_codec::RepeatFrameOptIn) -> Result<SendOutcome, VideoError> {
+            if session.state() != SessionState::Streaming {
+                return Err(VideoError::Session(SessionError::InvalidState { state: session.state(), operation: "repeat video" }));
+            }
+            session.check(Action::ViewScreen)?;
+            if deadline.is_zero() || display < 0 { return Err(VideoError::Codec(io::Error::new(io::ErrorKind::InvalidInput, "invalid deadline or display"))); }
+            if self.needs_reset() { return Err(VideoError::EncoderResetRequired); }
+            if !self.has_repeatable_input() { return Err(VideoError::NoRepeatableInput); }
+            let mut encoder = self.encoder.take().ok_or(VideoError::EncoderResetRequired)?;
+            let outcome = encoder.repeat_packed_outcome(pts_ms, opt_in)?;
+            let wire = outcome_wire(self.config.codec, display, outcome, self.max_envelope_bytes)?;
+            let result = if let Some(wire) = wire {
+                transport.send(&wire, deadline).await?;
+                SendOutcome::Sent
+            } else { SendOutcome::VpxNoOutput };
+            self.encoder = Some(encoder);
+            Ok(result)
         }
     }
 

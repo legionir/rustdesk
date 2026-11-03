@@ -23,8 +23,12 @@ impl VramCodec {
 }
 
 /// One packet and the source codec's keyframe/timestamp metadata.
-#[derive(Debug)]
 pub struct Packet { pub data: Vec<u8>, pub key: bool, pub pts_ms: i64 }
+impl std::fmt::Debug for Packet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Packet").field("bytes", &self.data.len()).field("key", &self.key).field("pts_ms", &self.pts_ms).finish()
+    }
+}
 /// Output from one native encode call; native allocations can exceed this cap.
 #[derive(Debug)]
 pub struct VramFrame { pub codec: VramCodec, pub packets: Vec<Packet> }

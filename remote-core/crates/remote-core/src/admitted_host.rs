@@ -53,6 +53,23 @@ pub async fn accept<T: AdjustableNetworkTransport, B: InputBackend>(
     HostConnection::new(secured, id, backend, verifier, permit, MAX_PRE_AUTH_BYTES).map_err(AcceptError::Connection)
 }
 
+/// Prepare the same strict admitted TCP connection in serial mode, while
+/// retaining the option of an explicitly authorized duplex upgrade later.
+/// The caller must derive the permit from the observed socket address before
+/// calling this function. No security or consent policy is added here.
+pub async fn accept_upgradeable_tcp<B: InputBackend>(
+    mut transport: remote_rustdesk_websocket::direct_tcp::DirectTcp, permit: AdmissionPermit, id: SessionId, backend: B,
+    verifier: PasswordVerifier, host_id: &str, signing_key: &sign::SecretKey, deadline: Duration,
+) -> Result<HostConnection<remote_rustdesk_websocket::duplex_tcp::UpgradeableEncryptedTcp, B>, AcceptError> {
+    if let Err(e) = permit.check_live() { transport.close(); return Err(AcceptError::Admission(e)); }
+    if let Err(e) = transport.set_max_message_size(MAX_PRE_AUTH_BYTES + 16) { transport.close(); return Err(AcceptError::Framing(e)); }
+    let wait = deadline.min(permit.remaining());
+    if wait.is_zero() { transport.close(); return Err(AcceptError::Admission(AdmissionError::Expired)); }
+    let secured = accept_pinned_host(transport, host_id, signing_key, MAX_PRE_AUTH_BYTES, wait).await.map_err(AcceptError::Handshake)?;
+    let wrapped = remote_rustdesk_websocket::duplex_tcp::UpgradeableEncryptedTcp::new(secured);
+    HostConnection::new(wrapped, id, backend, verifier, permit, MAX_PRE_AUTH_BYTES).map_err(AcceptError::Connection)
+}
+
 /// Errors in pre-admitted WSS transport setup or the source host handshake.
 #[derive(Debug)]
 pub enum WssAcceptError {

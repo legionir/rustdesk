@@ -4,6 +4,9 @@
 //! The embedding application must review policy, derive IPs from a trusted
 //! socket or authenticated proxy, serialize check/update, provision memory and
 //! audit decisions. Spoofable headers/peer IDs must never be used as addresses.
+//! `admission::normalize_socket_ip` is available for explicitly chosen,
+//! consistently applied normalization; these counters never normalize by
+//! themselves to avoid silently changing source bucket/reset semantics.
 //! Shared IPv6 prefix clearing on success follows source behavior and permits
 //! one successful login to clear failures for other hosts in that prefix.
 use std::{collections::HashMap, error::Error, fmt, net::{IpAddr, Ipv6Addr}};

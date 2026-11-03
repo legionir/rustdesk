@@ -9,6 +9,7 @@
 use hbb_common::{bytes::BytesMut, sodiumoxide::crypto::secretbox, tcp::Encrypt};
 use remote_transport::{NetworkTransport, NetworkTransportError, TransportFuture};
 use std::time::Duration;
+use zeroize::Zeroize;
 
 /// Maximum plaintext size; ciphertext adds secretbox's authentication tag.
 pub const MAX_PLAINTEXT_BYTES: usize = 16 * 1024 * 1024 - secretbox::MACBYTES;
@@ -18,13 +19,23 @@ pub const MAX_PLAINTEXT_BYTES: usize = 16 * 1024 * 1024 - secretbox::MACBYTES;
 /// cap and close on interrupted I/O. This wrapper rejects the source's short
 /// plaintext keepalive bypass while encrypted and closes on auth/counter errors.
 pub struct EncryptedTransport<T: NetworkTransport> {
-    inner: T,
+    inner: Option<T>,
     cipher: Option<Encrypt>,
     max_plaintext: usize,
 }
 impl<T: NetworkTransport> EncryptedTransport<T> {
     fn new(inner: T, cipher: Encrypt, max_plaintext: usize) -> Self {
-        Self { inner, cipher: Some(cipher), max_plaintext }
+        Self { inner: Some(inner), cipher: Some(cipher), max_plaintext }
+    }
+}
+impl EncryptedTransport<crate::direct_tcp::DirectTcp> {
+    /// Consume the existing encrypted TCP stream into an opt-in duplex driver.
+    /// This must be done only after authorization and after selecting the final
+    /// frame limit. It is not a security review or a production transport.
+    pub fn into_experimental_duplex(mut self) -> Result<crate::duplex_tcp::DuplexTcp, NetworkTransportError> {
+        let cipher = self.cipher.take().ok_or(NetworkTransportError::Closed)?;
+        let inner = self.inner.take().ok_or(NetworkTransportError::Closed)?;
+        crate::duplex_tcp::DuplexTcp::start(inner, cipher, self.max_plaintext)
     }
 }
 impl<T: NetworkTransport> NetworkTransport for EncryptedTransport<T> {
@@ -40,9 +51,9 @@ impl<T: NetworkTransport> NetworkTransport for EncryptedTransport<T> {
             // state. The inner transport must itself close on interrupted I/O.
             let mut cipher = self.cipher.take().ok_or(NetworkTransportError::Closed)?;
             let encrypted = cipher.enc(bytes);
-            match self.inner.send(&encrypted, deadline).await {
+            match self.inner.as_mut().ok_or(NetworkTransportError::Closed)?.send(&encrypted, deadline).await {
                 Ok(()) => { self.cipher = Some(cipher); Ok(()) },
-                Err(_) => { self.inner.close(); Err(NetworkTransportError::SendOutcomeUnknown("encrypted send failed".into())) },
+                Err(_) => { if let Some(inner) = self.inner.as_mut() { inner.close(); } Err(NetworkTransportError::SendOutcomeUnknown("encrypted send failed".into())) },
             }
         })
     }
@@ -53,22 +64,27 @@ impl<T: NetworkTransport> NetworkTransport for EncryptedTransport<T> {
                 self.close(); return Err(NetworkTransportError::Closed);
             }
             let mut cipher = self.cipher.take().ok_or(NetworkTransportError::Closed)?;
-            let encrypted = match self.inner.receive(deadline).await {
+            let encrypted = match self.inner.as_mut().ok_or(NetworkTransportError::Closed)?.receive(deadline).await {
                 Ok(bytes) => bytes,
-                Err(_) => { self.inner.close(); return Err(NetworkTransportError::ReceiveFailed("encrypted receive failed".into())); },
+                Err(_) => { if let Some(inner) = self.inner.as_mut() { inner.close(); } return Err(NetworkTransportError::ReceiveFailed("encrypted receive failed".into())); },
             };
             if encrypted.len() < secretbox::MACBYTES || encrypted.len() > self.max_plaintext + secretbox::MACBYTES {
-                self.inner.close(); return Err(NetworkTransportError::ReceiveFailed("invalid ciphertext length".into()));
+                if let Some(inner) = self.inner.as_mut() { inner.close(); } return Err(NetworkTransportError::ReceiveFailed("invalid ciphertext length".into()));
             }
             let mut bytes = BytesMut::from(&encrypted[..]);
             if cipher.dec(&mut bytes).is_err() {
-                self.inner.close(); return Err(NetworkTransportError::ReceiveFailed("ciphertext authentication failed".into()));
+                if let Some(inner) = self.inner.as_mut() { inner.close(); } return Err(NetworkTransportError::ReceiveFailed("ciphertext authentication failed".into()));
             }
+            // The returned copy belongs to the caller; clear this wrapper's
+            // visible decrypted buffer after copying. The source cipher uses
+            // its own temporary allocation, outside this limited guarantee.
+            let plain = bytes.to_vec().into_boxed_slice();
+            bytes[..].zeroize();
             self.cipher = Some(cipher);
-            Ok(bytes.to_vec().into_boxed_slice())
+            Ok(plain)
         })
     }
-    fn close(&mut self) { self.cipher.take(); self.inner.close(); }
+    fn close(&mut self) { self.cipher.take(); if let Some(mut inner) = self.inner.take() { inner.close(); } }
 }
 impl<T: NetworkTransport> Drop for EncryptedTransport<T> {
     fn drop(&mut self) { self.close(); }
@@ -221,7 +237,7 @@ impl<T: remote_transport::AdjustableNetworkTransport> remote_transport::Adjustab
             return Err(NetworkTransportError::InvalidRequest("invalid encrypted plaintext limit".into()));
         }
         // The underlying framed size must include the source secretbox tag.
-        self.inner.set_max_message_size(maximum + secretbox::MACBYTES)?;
+        self.inner.as_mut().ok_or(NetworkTransportError::Closed)?.set_max_message_size(maximum + secretbox::MACBYTES)?;
         self.max_plaintext = maximum;
         Ok(())
     }

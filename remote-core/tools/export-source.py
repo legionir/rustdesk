@@ -16,7 +16,7 @@ import tarfile
 SOURCE = Path(__file__).resolve().parents[2]
 BASE = "23e5bb471a040d62f0a6ad52591fb30784265b73"
 COMMON = "fae47e024dd83cef6aaecde0aa7d11731df11649"
-SOURCE_PATHS = ["LICENCE", "Cargo.lock", "libs/base", "libs/scrap", "libs/enigo", "libs/libxdo-sys-stub"]
+SOURCE_PATHS = ["LICENCE", "Cargo.lock", ".cargo/config.toml", "libs/base", "libs/scrap", "libs/enigo", "libs/libxdo-sys-stub"]
 
 
 def git(repo, *args):
@@ -55,6 +55,30 @@ def unpack(data, destination):
                 out.chmod(item.mode & 0o777)
 
 
+def manifest(destination):
+    """Hash each exported regular file, in deterministic path order.
+
+    Manifest is not a signature and says nothing about license or trust. Refuse
+    unusual names to keep the format unambiguous and safe for common checkers.
+    """
+    records = []
+    for file in sorted(destination.rglob("*"), key=lambda path: path.relative_to(destination).as_posix()):
+        if file.is_symlink():
+            raise ValueError(f"unexpected export symlink: {file}")
+        if not file.is_file():
+            continue
+        name = file.relative_to(destination).as_posix()
+        if any(char in name for char in "\\:\n\r\0") or name.splitlines() != [name]:
+            raise ValueError(f"unsupported manifest filename: {name!r}")
+        digest = hashlib.sha256()
+        with file.open("rb") as source:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+        records.append(f"{digest.hexdigest()}  {name}\n")
+    (destination / "SOURCE_MANIFEST.sha256").write_text("".join(records), encoding="utf-8", newline="\n")
+    return len(records)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="a new output directory outside the RustDesk checkout")
@@ -91,6 +115,9 @@ def main():
         # The pinned upstream lock is a resolution starting point. New prototype
         # crates are absent from it, so --locked is not expected to work yet.
         (destination / "remote-core/Cargo.lock").write_bytes((destination / "Cargo.lock").read_bytes())
+        # Derived from the committed candidate rather than the checkout's broad
+        # application ignore rules. Do not ignore the unresolved lockfile.
+        (destination / ".gitignore").write_bytes((destination / "remote-core/tools/export-gitignore").read_bytes())
         lines = [
             "# Export provenance — experimental, not a release", "",
             f"RustDesk source baseline: `{BASE}`",
@@ -104,15 +131,18 @@ def main():
             "Run Cargo from `remote-core/`. The inherited lockfile is a starting point,",
             "not a confirmed locked build; the new workspace may need resolution.",
             "No build, test, security review, or license clearance is implied.",
+            "Baseline `.cargo/config.toml` is retained, including Windows CRT flags;",
+            "its applicability to an independent build still requires verification.",
             "Original upstream notices are preserved; root `LICENCE` is AGPL-3.0.",
             "Third-party and per-file licensing still requires review before release.", "",
         ]
         (destination / "SOURCE_PROVENANCE.md").write_text("\n".join(lines), encoding="utf-8")
+        count = manifest(destination)
     except Exception:
         # Leave partial output for inspection; never delete user files here.
         print(f"Export failed; incomplete directory left at {destination}", file=sys.stderr)
         raise
-    print(f"Exported experimental source tree to {destination}")
+    print(f"Exported experimental source tree to {destination} ({count} hashed files)")
     print("This is not yet a tested, audited, or independently versioned repository.")
 
 

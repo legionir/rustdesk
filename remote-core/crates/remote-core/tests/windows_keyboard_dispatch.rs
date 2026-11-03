@@ -108,3 +108,22 @@ fn restricted_translate_mode_dispatches_source_code_and_releases_on_revoke() {
     assert_eq!(&*calls.borrow(), &["raw-down:65", "raw-up:65", "scan-down:57373", "scan-up:57373"]);
     assert!(Envelope::windows_translate_event(0xffff_0000, true).is_err());
 }
+
+#[test]
+fn source_supplementary_unicode_is_explicit_and_permission_checked() {
+    use remote_core::windows_keyboard::dispatch_source_unicode;
+    use remote_input::SourceWindowsUnicodeOptIn;
+    use remote_protocol::input::LegacyKey;
+    let token = SourceWindowsUnicodeOptIn::acknowledge_source_surrogate_and_delivery_risks;
+    let fake = Fake::default(); let calls = fake.0.clone(); let mut host = authorized(fake);
+    let unicode = Envelope::legacy_keyboard_event(LegacyKey::Unicode(0x1f600), false, false, &[]).unwrap();
+    assert!(dispatch(&mut host, &unicode).is_err());
+    dispatch_source_unicode(&mut host, &unicode, token()).unwrap();
+    dispatch_source_unicode(&mut host, &text_event("A😀"), token()).unwrap();
+    assert!(dispatch_source_unicode(&mut host, &event(ControlKey::F2, true, false, KeyboardMode::Legacy, false), token()).is_err());
+    let modifiers = Envelope::legacy_keyboard_event(LegacyKey::Sequence("😀"), true, false, &[4]).unwrap();
+    assert!(dispatch_source_unicode(&mut host, &modifiers, token()).is_err());
+    host.restrict_permissions(Permissions::default()).unwrap();
+    assert!(dispatch_source_unicode(&mut host, &unicode, token()).is_err());
+    assert_eq!(&*calls.borrow(), &["text:😀", "text:A😀"]);
+}

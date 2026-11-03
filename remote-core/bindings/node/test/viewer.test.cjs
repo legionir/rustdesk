@@ -19,7 +19,25 @@ test('rejects invalid viewer options before scheduling network work', () => {
 test('rejects invalid WSS options before scheduling network work', () => {
   const { address, ...rest } = base;
   assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'ws://example.com/' }));
+  assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'wss://example.com/\npath' }));
+  assert.throws(() => core.connectWssViewer({ ...rest, endpoint: `wss://example.com/${'x'.repeat(4096)}` }));
   assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'wss://user:password@example.com/' }));
   assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'wss://example.com/?token=secret' }));
   assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'wss://example.com/', hostSigningKey: Buffer.alloc(31) }));
+});
+
+test('two-factor disclosure requires explicit matching opt-in and valid format', () => {
+  const bad = [
+    { twoFactorCode: '123456' },
+    { acknowledgeTwoFactorDisclosure: true },
+    { twoFactorCode: '12345x', acknowledgeTwoFactorDisclosure: true },
+    { twoFactorCode: '12345', acknowledgeTwoFactorDisclosure: true },
+    { twoFactorCode: '123456789', acknowledgeTwoFactorDisclosure: true },
+    { twoFactorCode: '123456', acknowledgeTwoFactorDisclosure: false },
+  ];
+  const { address, ...rest } = base;
+  for (const extra of bad) {
+    assert.throws(() => core.connectViewer({ ...base, ...extra }));
+    assert.throws(() => core.connectWssViewer({ ...rest, endpoint: 'wss://example.com/', ...extra }));
+  }
 });

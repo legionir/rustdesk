@@ -6,6 +6,9 @@
 //! controllers can otherwise release each other's keys. Explicitly call `close`
 //! on disconnect; `Drop` only provides best-effort cleanup.
 
+/// Read-only source Unicode key sequence planning; no native injection.
+pub mod windows_unicode_plan;
+
 use std::{fmt, io};
 
 /// Input permissions. Default denies all input.
@@ -92,6 +95,16 @@ pub trait InputBackend {
     }
 }
 
+/// Explicit acknowledgement of the pinned Windows Enigo Unicode sequence
+/// semantics: supplementary characters emit UTF-16 surrogate downs without
+/// matching ups, and SendInput failures may be invisible. This token is not
+/// consent, OS-wide ownership, a cleanup guarantee or proof the backend is
+/// Windows. Only use after local approval on a suitable interactive desktop.
+pub struct SourceWindowsUnicodeOptIn(());
+impl SourceWindowsUnicodeOptIn {
+    pub fn acknowledge_source_surrogate_and_delivery_risks() -> Self { Self(()) }
+}
+
 /// Errors from permission checks, lifecycle, or the input backend.
 #[derive(Debug)]
 pub enum InputError {
@@ -139,34 +152,53 @@ impl<B: InputBackend> InputController<B> {
     pub fn permissions(&self) -> Permissions { self.permissions }
 
     /// Update permissions. Revocation immediately denies new input and attempts
-    /// to release affected held inputs. Failures remain tracked for later retry.
+    /// to release affected held inputs. On detectable release failure the
+    /// controller is closed and all input denied; unresolved records remain
+    /// tracked for explicit `close` retry. Native failures may be invisible.
     pub fn set_permissions(&mut self, permissions: Permissions) -> Result<(), InputError> {
         if self.closed { return Err(InputError::Closed); }
         self.permissions = permissions;
-        self.release(!permissions.keyboard, !permissions.mouse)
+        let result = self.release(!permissions.keyboard, !permissions.mouse);
+        if result.is_err() { self.fail_closed(); }
+        result
     }
+
+    fn fail_closed(&mut self) { self.closed = true; self.permissions = Permissions::default(); }
 
     fn allowed(&self, granted: bool) -> Result<(), InputError> {
         if self.closed { Err(InputError::Closed) } else if !granted { Err(InputError::PermissionDenied) } else { Ok(()) }
     }
 
-    /// Move in virtual desktop coordinates. Monitor-relative mapping is the caller's responsibility.
+    // A native error can follow partial delivery. Fail closed and attempt
+    // release of all tracked input; failed releases remain for explicit retry.
+    fn movement_result(&mut self, result: io::Result<()>) -> Result<(), InputError> {
+        if let Err(error) = result {
+            self.fail_closed();
+            let _ = self.release(true, true);
+            return Err(InputError::Backend(error));
+        }
+        Ok(())
+    }
+    /// Move in virtual desktop coordinates. Monitor-relative mapping is the
+    /// caller's responsibility. A detectable backend error closes the
+    /// controller; movement may already have occurred and is never retried.
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<(), InputError> {
         self.allowed(self.permissions.mouse)?;
-        self.backend.move_to(x, y)?;
-        Ok(())
+        let result = self.backend.move_to(x, y);
+        self.movement_result(result)
     }
-    /// Move by relative pixel deltas, after checking mouse permission.
+    /// Move by relative pixel deltas. Failure is terminal and may be partial.
     pub fn move_relative(&mut self, x: i32, y: i32) -> Result<(), InputError> {
         self.allowed(self.permissions.mouse)?;
-        self.backend.move_relative(x, y)?;
-        Ok(())
+        let result = self.backend.move_relative(x, y);
+        self.movement_result(result)
     }
-    /// Send horizontal and vertical scroll deltas in backend units.
+    /// Send horizontal and vertical scroll deltas. A detectable partial error
+    /// closes input and is not retried; earlier scroll cannot be undone.
     pub fn scroll(&mut self, x: i32, y: i32) -> Result<(), InputError> {
         self.allowed(self.permissions.mouse)?;
-        self.backend.scroll(x, y)?;
-        Ok(())
+        let result = self.backend.scroll(x, y);
+        self.movement_result(result)
     }
     /// Press a button. Repeated downs are ignored to preserve tracked state.
     /// A backend error may have occurred after injection; track first, deny
@@ -183,11 +215,14 @@ impl<B: InputBackend> InputController<B> {
         }
         Ok(())
     }
-    /// Release a held button; unknown releases are ignored.
+    /// Release a held button; unknown releases are ignored. A detectable
+    /// failure closes the controller and keeps the record for `close` retry.
     pub fn mouse_up(&mut self, button: MouseButton) -> Result<(), InputError> {
         self.allowed(self.permissions.mouse)?;
         if let Some(index) = self.buttons.iter().position(|b| *b == button) {
-            self.backend.mouse_up(button)?;
+            if let Err(error) = self.backend.mouse_up(button) {
+                self.fail_closed(); return Err(InputError::Backend(error));
+            }
             self.buttons.remove(index);
         }
         Ok(())
@@ -218,11 +253,26 @@ impl<B: InputBackend> InputController<B> {
         }
         Ok(())
     }
-    /// Release a held key; unknown releases are ignored.
+    /// Explicit source-style repeated down. Sends a new native down when this
+    /// controller already holds the key; it does not start a repeat timer or
+    /// inspect global OS state. Requires exclusive input and local consent.
+    pub fn key_down_with_repeat(&mut self, key: VirtualKey) -> Result<(), InputError> {
+        self.allowed(self.permissions.keyboard)?;
+        if !self.keys.contains(&key) { return self.key_down(key); }
+        if let Err(error) = self.backend.key_down(key) {
+            self.closed = true; self.permissions = Permissions::default();
+            let _ = self.release(true, true); return Err(InputError::Backend(error));
+        }
+        Ok(())
+    }
+    /// Release a held key; unknown releases are ignored. A detectable
+    /// failure closes the controller and keeps the record for `close` retry.
     pub fn key_up(&mut self, key: VirtualKey) -> Result<(), InputError> {
         self.allowed(self.permissions.keyboard)?;
         if let Some(index) = self.keys.iter().position(|k| *k == key) {
-            self.backend.key_up(key)?;
+            if let Err(error) = self.backend.key_up(key) {
+                self.fail_closed(); return Err(InputError::Backend(error));
+            }
             self.keys.remove(index);
         }
         Ok(())
@@ -254,11 +304,26 @@ impl<B: InputBackend> InputController<B> {
         }
         Ok(())
     }
-    /// Release a tracked scan code; retain it when a detectable failure occurs.
+    /// Explicit repeated scan down, with the same partial-failure cleanup as
+    /// an initial press. Other input owners and OS repeat timers are not tracked.
+    pub fn scan_down_with_repeat(&mut self, code: ScanCode) -> Result<(), InputError> {
+        self.allowed(self.permissions.keyboard)?;
+        if !self.scans.contains(&code) { return self.scan_down(code); }
+        if let Err(error) = self.backend.scan_down(code) {
+            self.closed = true; self.permissions = Permissions::default();
+            let _ = self.release(true, true); return Err(InputError::Backend(error));
+        }
+        Ok(())
+    }
+    /// Release a tracked scan code. A detectable failure closes the controller
+    /// and retains the record for `close` retry.
     pub fn scan_up(&mut self, code: ScanCode) -> Result<(), InputError> {
         self.allowed(self.permissions.keyboard)?;
         if let Some(index) = self.scans.iter().position(|key| *key == code) {
-            self.backend.scan_up(code)?; self.scans.remove(index);
+            if let Err(error) = self.backend.scan_up(code) {
+                self.fail_closed(); return Err(InputError::Backend(error));
+            }
+            self.scans.remove(index);
         }
         Ok(())
     }
@@ -277,10 +342,25 @@ impl<B: InputBackend> InputController<B> {
         }
         Ok(())
     }
+    /// Explicit repeated raw virtual down; not a query of global key state.
+    pub fn raw_virtual_down_with_repeat(&mut self, key: VirtualKey) -> Result<(), InputError> {
+        self.allowed(self.permissions.keyboard)?;
+        if !self.raw_keys.contains(&key) { return self.raw_virtual_down(key); }
+        if let Err(error) = self.backend.raw_virtual_down(key) {
+            self.closed = true; self.permissions = Permissions::default();
+            let _ = self.release(true, true); return Err(InputError::Backend(error));
+        }
+        Ok(())
+    }
+    /// A detectable failed release closes the controller and retains the
+    /// record for `close` retry. Unknown releases are ignored.
     pub fn raw_virtual_up(&mut self, key: VirtualKey) -> Result<(), InputError> {
         self.allowed(self.permissions.keyboard)?;
         if let Some(index) = self.raw_keys.iter().position(|held| *held == key) {
-            self.backend.raw_virtual_up(key)?; self.raw_keys.remove(index);
+            if let Err(error) = self.backend.raw_virtual_up(key) {
+                self.fail_closed(); return Err(InputError::Backend(error));
+            }
+            self.raw_keys.remove(index);
         }
         Ok(())
     }
@@ -288,13 +368,40 @@ impl<B: InputBackend> InputController<B> {
     /// controller. The source Enigo backend cannot report Windows SendInput
     /// failures, and local-human or other-process modifier state is not checked.
     /// Non-BMP text remains unsupported here pending surrogate/cleanup tests.
+    /// A detectable injection failure closes the controller; any partial text
+    /// already delivered cannot be undone.
     pub fn type_text(&mut self, text: &str) -> Result<(), InputError> {
         self.allowed(self.permissions.keyboard)?;
         if self.has_held_keyboard() { return Err(InputError::AlreadyPressed); }
         if text.is_empty() || text.len() > 4096 || text.chars().any(|c| c == '\0' || c as u32 > 0xffff) {
             return Err(InputError::Backend(io::Error::new(io::ErrorKind::InvalidInput, "unsupported text sequence")));
         }
-        self.backend.type_text(text)?;
+        if let Err(error) = self.backend.type_text(text) {
+            self.fail_closed();
+            // Text requires no tracked keys but mouse buttons may still be held.
+            // Their failed releases remain tracked for an explicit close retry.
+            let _ = self.release(true, true);
+            return Err(InputError::Backend(error));
+        }
+        Ok(())
+    }
+    /// Explicitly allow the pinned source Windows Enigo sequence behavior,
+    /// including supplementary UTF-16 surrogate downs without paired ups.
+    /// This bypasses the normal BMP-only rule but still requires keyboard
+    /// permission, bounded nonempty text and no locally tracked keys. It is
+    /// not an OS-wide input lock and cannot detect partial Enigo delivery.
+    /// A detectable backend error closes this controller; partial output cannot
+    /// be undone. The caller must ensure the actual backend is Windows Enigo.
+    pub fn type_text_source_windows(&mut self, text: &str, _: SourceWindowsUnicodeOptIn) -> Result<(), InputError> {
+        self.allowed(self.permissions.keyboard)?;
+        if self.has_held_keyboard() { return Err(InputError::AlreadyPressed); }
+        if text.is_empty() || text.len() > windows_unicode_plan::MAX_TEXT_BYTES || text.contains('\0') {
+            return Err(InputError::Backend(io::Error::new(io::ErrorKind::InvalidInput, "unsupported text sequence")));
+        }
+        if let Err(error) = self.backend.type_text(text) {
+            self.closed = true; self.permissions = Permissions::default();
+            let _ = self.release(true, true); return Err(InputError::Backend(error));
+        }
         Ok(())
     }
     /// Deny all future operations and attempt to release every held input.
@@ -350,6 +457,10 @@ pub mod windows {
     use std::io;
 
     /// Windows input backend. Operations affect the interactive desktop.
+    /// BLOCKED pending review: the pinned Enigo error formatter advertises a
+    /// larger buffer than it initializes and its global layout state is not
+    /// synchronized across independent instances. See the Windows safety gate
+    /// in docs/analysis; do not enable this backend until fixed and validated.
     /// Enigo does not report every SendInput failure, especially on release,
     /// cursor movement and scroll. Elevated/secure desktops and UIPI can block input.
     pub struct WindowsInput { inner: Enigo }
@@ -357,7 +468,18 @@ pub mod windows {
     impl WindowsInput {
         /// Create the backend. No authentication or authorization is performed.
         pub fn new() -> Self { Self { inner: Enigo::new() } }
+        /// Read source Enigo's Windows GetKeyState toggle bits for CapsLock and
+        /// NumLock without injecting keys. These are transient calling-thread
+        /// input-queue observations, not global truth or proof of OS state.
+        /// Coordinate the desktop, DPI/session and input ownership externally;
+        /// a user or another process may change locks immediately afterward.
+        pub fn lock_state(&mut self) -> WindowsLockState {
+            WindowsLockState { caps_lock: self.inner.get_key_state(Key::CapsLock), num_lock: self.inner.get_key_state(Key::NumLock) }
+        }
     }
+    /// Untrusted transient local lock observations, not authorization.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct WindowsLockState { pub caps_lock: bool, pub num_lock: bool }
     fn button(b: MouseButton) -> enigo::MouseButton {
         match b { MouseButton::Left => enigo::MouseButton::Left, MouseButton::Right => enigo::MouseButton::Right, MouseButton::Middle => enigo::MouseButton::Middle, MouseButton::Back => enigo::MouseButton::Back, MouseButton::Forward => enigo::MouseButton::Forward }
     }
@@ -441,6 +563,17 @@ mod tests {
         assert_eq!(&*events.borrow(), &["kd:17", "kd:65", "down:Left", "ku:65", "ku:17", "up:Left"]);
     }
     #[test]
+    fn explicit_repeat_keeps_one_cleanup_record() {
+        let backend = Fake::default(); let events = backend.events.clone();
+        let mut c = InputController::new(backend);
+        assert!(matches!(c.key_down_with_repeat(key(65)), Err(InputError::PermissionDenied)));
+        c.set_permissions(Permissions { mouse: false, keyboard: true }).unwrap();
+        c.key_down(key(65)).unwrap(); c.key_down(key(65)).unwrap();
+        c.key_down_with_repeat(key(65)).unwrap(); c.close().unwrap();
+        assert_eq!(&*events.borrow(), &["kd:65", "kd:65", "ku:65"]);
+        assert!(matches!(c.key_down_with_repeat(key(65)), Err(InputError::Closed)));
+    }
+    #[test]
     fn failed_release_is_retained_and_retried_on_close() {
         let backend = Fake::default(); let events = backend.events.clone(); let fail = backend.fail_release.clone();
         let mut c = InputController::new(backend);
@@ -482,6 +615,33 @@ mod partial_delivery_tests {
             if self.fail_up.get() { Err(io::Error::new(io::ErrorKind::Other, "release failed")) } else { Ok(()) }
         }
     }
+    struct RepeatPartial { events: Rc<RefCell<Vec<&'static str>>>, count: usize, fail_up: Rc<Cell<bool>> }
+    impl InputBackend for RepeatPartial {
+        fn move_to(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn mouse_down(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn mouse_up(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn key_down(&mut self, _: VirtualKey) -> io::Result<()> {
+            self.count += 1; self.events.borrow_mut().push("down");
+            if self.count > 1 { Err(io::Error::new(io::ErrorKind::Other, "partial repeat")) } else { Ok(()) }
+        }
+        fn key_up(&mut self, _: VirtualKey) -> io::Result<()> {
+            self.events.borrow_mut().push("release");
+            if self.fail_up.get() { Err(io::Error::new(io::ErrorKind::Other, "release failed")) } else { Ok(()) }
+        }
+    }
+    #[test]
+    fn partial_repeated_down_fails_closed_and_retries_release() {
+        let events = Rc::new(RefCell::new(Vec::new())); let fail_up = Rc::new(Cell::new(true));
+        let mut input = InputController::new(RepeatPartial { events: events.clone(), count: 0, fail_up: fail_up.clone() });
+        input.set_permissions(Permissions { keyboard: true, mouse: false }).unwrap();
+        let key = VirtualKey::new(65).unwrap();
+        input.key_down_with_repeat(key).unwrap();
+        assert!(input.key_down_with_repeat(key).is_err());
+        assert!(matches!(input.key_down_with_repeat(key), Err(InputError::Closed)));
+        fail_up.set(false); input.close().unwrap();
+        assert_eq!(&*events.borrow(), &["down", "down", "release", "release"]);
+    }
     #[test]
     fn partial_down_fails_closed_and_retries_release() {
         let events = Rc::new(RefCell::new(Vec::new())); let fail_up = Rc::new(Cell::new(true));
@@ -506,11 +666,27 @@ mod scan_tests {
         fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
         fn key_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
         fn key_up(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn raw_virtual_down(&mut self, _: VirtualKey) -> io::Result<()> { self.events.borrow_mut().push("raw-down"); Ok(()) }
+        fn raw_virtual_up(&mut self, _: VirtualKey) -> io::Result<()> { self.events.borrow_mut().push("raw-up"); Ok(()) }
         fn scan_down(&mut self, _: ScanCode) -> io::Result<()> { self.events.borrow_mut().push("down"); Ok(()) }
         fn scan_up(&mut self, _: ScanCode) -> io::Result<()> {
             self.events.borrow_mut().push("up");
             if self.fail_up.get() { Err(io::Error::new(io::ErrorKind::Other, "fake release failure")) } else { Ok(()) }
         }
+    }
+    #[test]
+    fn repeated_physical_representations_remain_exclusive_and_release_once() {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let mut input = InputController::new(Fake { events: events.clone(), fail_up: Rc::new(Cell::new(false)) });
+        input.set_permissions(Permissions { keyboard: true, mouse: false }).unwrap();
+        let scan = ScanCode::new(0xe01d).unwrap(); let raw = VirtualKey::new(65).unwrap();
+        input.scan_down_with_repeat(scan).unwrap(); input.scan_down_with_repeat(scan).unwrap();
+        assert!(matches!(input.raw_virtual_down_with_repeat(raw), Err(InputError::AlreadyPressed)));
+        input.scan_up(scan).unwrap();
+        input.raw_virtual_down_with_repeat(raw).unwrap(); input.raw_virtual_down_with_repeat(raw).unwrap();
+        assert!(matches!(input.scan_down_with_repeat(scan), Err(InputError::AlreadyPressed)));
+        input.close().unwrap();
+        assert_eq!(&*events.borrow(), &["down", "down", "up", "raw-down", "raw-down", "raw-up"]);
     }
     #[test]
     fn revoke_retains_failed_scan_release_until_close() {
@@ -527,5 +703,165 @@ mod scan_tests {
         fail.set(false); input.close().unwrap();
         assert!(!input.has_held_scans());
         assert_eq!(&*events.borrow(), &["down", "up", "up"]);
+    }
+}
+
+#[cfg(test)]
+mod source_unicode_opt_in_tests {
+    use super::*;
+    use std::{cell::{Cell, RefCell}, rc::Rc};
+    struct TextBackend { sent: Rc<RefCell<Vec<String>>>, fail: Rc<Cell<bool>> }
+    impl InputBackend for TextBackend {
+        fn move_to(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn mouse_down(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn mouse_up(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn key_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn key_up(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn type_text(&mut self, text: &str) -> io::Result<()> {
+            self.sent.borrow_mut().push(text.to_owned());
+            if self.fail.get() { Err(io::Error::new(io::ErrorKind::Other, "possible partial delivery")) } else { Ok(()) }
+        }
+    }
+    fn opt() -> SourceWindowsUnicodeOptIn { SourceWindowsUnicodeOptIn::acknowledge_source_surrogate_and_delivery_risks() }
+    #[test]
+    fn only_explicit_path_accepts_bounded_supplementary_text() {
+        let sent = Rc::new(RefCell::new(Vec::new())); let fail = Rc::new(Cell::new(false));
+        let mut c = InputController::new(TextBackend { sent: sent.clone(), fail: fail.clone() });
+        assert!(matches!(c.type_text_source_windows("😀", opt()), Err(InputError::PermissionDenied)));
+        c.set_permissions(Permissions { keyboard: true, mouse: false }).unwrap();
+        assert!(c.type_text("😀").is_err());
+        assert!(c.type_text_source_windows("\0", opt()).is_err());
+        assert!(c.type_text_source_windows(&"x".repeat(windows_unicode_plan::MAX_TEXT_BYTES + 1), opt()).is_err());
+        c.key_down(VirtualKey::new(65).unwrap()).unwrap();
+        assert!(matches!(c.type_text_source_windows("😀", opt()), Err(InputError::AlreadyPressed)));
+        c.key_up(VirtualKey::new(65).unwrap()).unwrap();
+        c.type_text_source_windows("A😀", opt()).unwrap();
+        assert_eq!(&*sent.borrow(), &["A😀"]);
+        fail.set(true); assert!(c.type_text_source_windows("B", opt()).is_err());
+        assert!(matches!(c.type_text_source_windows("C", opt()), Err(InputError::Closed)));
+    }
+}
+
+#[cfg(test)]
+mod failed_release_policy_tests {
+    use super::*;
+    use std::{cell::Cell, rc::Rc};
+    struct Backend { fail: Rc<Cell<bool>>, releases: Rc<Cell<usize>> }
+    impl Backend {
+        fn release(&self) -> io::Result<()> {
+            self.releases.set(self.releases.get() + 1);
+            if self.fail.get() { Err(io::Error::new(io::ErrorKind::Other, "uncertain delivery")) } else { Ok(()) }
+        }
+    }
+    impl InputBackend for Backend {
+        fn move_to(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn mouse_down(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn mouse_up(&mut self, _: MouseButton) -> io::Result<()> { self.release() }
+        fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn key_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn key_up(&mut self, _: VirtualKey) -> io::Result<()> { self.release() }
+        fn scan_down(&mut self, _: ScanCode) -> io::Result<()> { Ok(()) }
+        fn scan_up(&mut self, _: ScanCode) -> io::Result<()> { self.release() }
+        fn raw_virtual_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn raw_virtual_up(&mut self, _: VirtualKey) -> io::Result<()> { self.release() }
+        fn type_text(&mut self, _: &str) -> io::Result<()> { Err(io::Error::new(io::ErrorKind::Other, "partial text")) }
+    }
+    #[test]
+    fn failed_up_denies_all_input_and_explicit_close_retries() {
+        for kind in 0..4 {
+            let fail = Rc::new(Cell::new(false)); let releases = Rc::new(Cell::new(0));
+            let mut input = InputController::new(Backend { fail: fail.clone(), releases: releases.clone() });
+            input.set_permissions(Permissions { keyboard: true, mouse: true }).unwrap();
+            let key = VirtualKey::new(65).unwrap(); let scan = ScanCode::new(0x1e).unwrap();
+            match kind { 0 => input.key_down(key).unwrap(), 1 => input.scan_down(scan).unwrap(),
+                2 => input.raw_virtual_down(key).unwrap(), _ => input.mouse_down(MouseButton::Left).unwrap() }
+            fail.set(true);
+            let result = match kind { 0 => input.key_up(key), 1 => input.scan_up(scan),
+                2 => input.raw_virtual_up(key), _ => input.mouse_up(MouseButton::Left) };
+            assert!(matches!(result, Err(InputError::Backend(_))));
+            assert_eq!(releases.get(), 1); // no implicit retry on the failed operation
+            assert!(matches!(input.move_to(1, 1), Err(InputError::Closed)));
+            assert!(matches!(input.set_permissions(Permissions { keyboard: true, mouse: true }), Err(InputError::Closed)));
+            fail.set(false); input.close().unwrap();
+            assert_eq!(releases.get(), 2);
+            input.close().unwrap(); assert_eq!(releases.get(), 2);
+        }
+    }
+    #[test]
+    fn failed_revocation_fails_closed_and_partial_text_is_not_retried() {
+        let fail = Rc::new(Cell::new(false)); let releases = Rc::new(Cell::new(0));
+        let mut input = InputController::new(Backend { fail: fail.clone(), releases: releases.clone() });
+        input.set_permissions(Permissions { keyboard: true, mouse: true }).unwrap();
+        input.key_down(VirtualKey::new(65).unwrap()).unwrap();
+        fail.set(true);
+        assert!(input.set_permissions(Permissions { keyboard: false, mouse: true }).is_err());
+        assert!(matches!(input.mouse_down(MouseButton::Left), Err(InputError::Closed)));
+        fail.set(false); input.close().unwrap(); assert_eq!(releases.get(), 2);
+        let mut text = InputController::new(Backend { fail, releases });
+        text.set_permissions(Permissions { keyboard: true, mouse: false }).unwrap();
+        assert!(text.type_text("A").is_err());
+        assert!(matches!(text.type_text("B"), Err(InputError::Closed)));
+    }
+    #[test]
+    fn text_failure_also_attempts_held_mouse_cleanup() {
+        let fail = Rc::new(Cell::new(true)); let releases = Rc::new(Cell::new(0));
+        let mut input = InputController::new(Backend { fail: fail.clone(), releases: releases.clone() });
+        input.set_permissions(Permissions { keyboard: true, mouse: true }).unwrap();
+        input.mouse_down(MouseButton::Left).unwrap();
+        assert!(input.type_text("A").is_err());
+        assert_eq!(releases.get(), 1);
+        fail.set(false); input.close().unwrap();
+        assert_eq!(releases.get(), 2);
+    }
+}
+
+#[cfg(test)]
+mod movement_failure_tests {
+    use super::*;
+    use std::{cell::Cell, rc::Rc};
+    struct PartialMove {
+        fail_release: Rc<Cell<bool>>,
+        moves: Rc<Cell<usize>>,
+        releases: Rc<Cell<usize>>,
+    }
+    impl PartialMove {
+        fn move_failure(&self) -> io::Result<()> {
+            self.moves.set(self.moves.get() + 1);
+            Err(io::Error::new(io::ErrorKind::Other, "possibly partial input"))
+        }
+        fn release(&self) -> io::Result<()> {
+            self.releases.set(self.releases.get() + 1);
+            if self.fail_release.get() { Err(io::Error::new(io::ErrorKind::Other, "release failed")) } else { Ok(()) }
+        }
+    }
+    impl InputBackend for PartialMove {
+        fn move_to(&mut self, _: i32, _: i32) -> io::Result<()> { self.move_failure() }
+        fn move_relative(&mut self, _: i32, _: i32) -> io::Result<()> { self.move_failure() }
+        fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { self.move_failure() }
+        fn mouse_down(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn mouse_up(&mut self, _: MouseButton) -> io::Result<()> { self.release() }
+        fn key_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn key_up(&mut self, _: VirtualKey) -> io::Result<()> { self.release() }
+    }
+    #[test]
+    fn every_movement_failure_closes_and_preserves_failed_releases_for_retry() {
+        for operation in 0..3 {
+            let fail_release = Rc::new(Cell::new(true));
+            let moves = Rc::new(Cell::new(0)); let releases = Rc::new(Cell::new(0));
+            let mut input = InputController::new(PartialMove { fail_release: fail_release.clone(), moves: moves.clone(), releases: releases.clone() });
+            input.set_permissions(Permissions { keyboard: true, mouse: true }).unwrap();
+            input.key_down(VirtualKey::new(65).unwrap()).unwrap();
+            input.mouse_down(MouseButton::Left).unwrap();
+            let result = match operation { 0 => input.move_to(1, 2), 1 => input.move_relative(1, 2), _ => input.scroll(1, 2) };
+            assert!(matches!(result, Err(InputError::Backend(_))));
+            assert_eq!(moves.get(), 1); assert_eq!(releases.get(), 2);
+            assert!(matches!(input.move_to(1, 2), Err(InputError::Closed)));
+            assert_eq!(moves.get(), 1); // movement never retried
+            fail_release.set(false);
+            input.close().unwrap();
+            assert_eq!(releases.get(), 4);
+            input.close().unwrap(); assert_eq!(releases.get(), 4);
+        }
     }
 }

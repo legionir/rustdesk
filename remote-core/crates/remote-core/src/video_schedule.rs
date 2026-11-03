@@ -24,6 +24,7 @@ impl Error for ScheduleError {}
 
 /// Single-display monotonic pacing. No catch-up burst is generated after a
 /// stall; a new attempt is scheduled from the actual previous attempt time.
+#[derive(Clone)]
 pub struct FrameCadence { last_attempt: Option<Instant>, interval: Duration }
 impl FrameCadence {
     pub fn new(fps: u32) -> Result<Self, ScheduleError> {
@@ -49,7 +50,7 @@ impl FrameCadence {
     }
 }
 
-struct PendingProbe { sent: Instant, expected: TestDelay, last_tick_second: u64 }
+struct PendingProbe { sent: Instant, expected: TestDelay, last_tick_second: u64, last_observed: Instant }
 /// One source-format host-origin probe in flight. A reply is untrusted and
 /// potentially replayed: the source's default time field is zero and carries
 /// no nonce. A peer can forge a matching echo. Do not use this for security.
@@ -63,9 +64,10 @@ impl DelayProbe {
         if self.expired { return Err(ScheduleError::ProbeExpired); }
         if self.pending.is_some() { return Err(ScheduleError::AlreadyPending); }
         let expected = TestDelay { time: 0, from_client: false, last_delay, target_bitrate };
-        self.pending = Some(PendingProbe { sent: now, expected, last_tick_second: 0 }); Ok(expected)
+        self.pending = Some(PendingProbe { sent: now, expected, last_tick_second: 0, last_observed: now }); Ok(expected)
     }
     fn age(pending: &PendingProbe, now: Instant) -> Result<Duration, ScheduleError> {
+        if now < pending.last_observed { return Err(ScheduleError::ClockWentBackwards); }
         now.checked_duration_since(pending.sent).ok_or(ScheduleError::ClockWentBackwards)
     }
     /// Return elapsed time at most once per whole second after two seconds,
@@ -76,6 +78,7 @@ impl DelayProbe {
         let pending = self.pending.as_mut().ok_or(ScheduleError::NoPending)?;
         let elapsed = Self::age(pending, now)?;
         if elapsed > MAX_PROBE_AGE { self.expired = true; self.pending = None; return Err(ScheduleError::ProbeExpired); }
+        pending.last_observed = now;
         let sec = elapsed.as_secs();
         if elapsed <= Duration::from_secs(2) || sec == pending.last_tick_second { return Ok(None); }
         pending.last_tick_second = sec; Ok(Some(elapsed))
@@ -152,6 +155,8 @@ mod tests {
         assert_eq!(probe.tick(t + Duration::from_secs(1)).unwrap(), None);
         assert!(probe.tick(t + Duration::from_secs(3)).unwrap().is_some());
         assert_eq!(probe.tick(t + Duration::from_secs(3)).unwrap(), None);
+        assert_eq!(probe.tick(t + Duration::from_millis(2500)), Err(ScheduleError::ClockWentBackwards));
+        assert_eq!(probe.reply(t + Duration::from_millis(2500), message), Err(ScheduleError::ClockWentBackwards));
         let mut wrong = message; wrong.target_bitrate += 1;
         assert_eq!(probe.reply(t + Duration::from_secs(4), wrong), Err(ScheduleError::InvalidReply));
         assert_eq!(probe.reply(t + Duration::from_secs(4), message).unwrap(), Duration::from_secs(4));
@@ -174,12 +179,14 @@ mod tests {
 /// No sleeping, tasks, encoder changes or ACK policy are performed. `next_due`
 /// reserves a capture attempt (including WouldBlock/failures), avoiding a busy
 /// loop; call with a monotonic local clock and drive all work on one owner.
+#[derive(Clone)]
 pub struct DisplayCadences {
     entries: Vec<(u32, FrameCadence)>,
     cursor: usize,
 }
 impl DisplayCadences {
     pub fn new() -> Self { Self { entries: Vec::new(), cursor: 0 } }
+    pub fn displays(&self) -> impl Iterator<Item = u32> + '_ { self.entries.iter().map(|(id, _)| *id) }
     pub fn add(&mut self, display: u32, fps: u32) -> Result<(), ScheduleError> {
         if self.entries.iter().any(|(id, _)| *id == display) { return Err(ScheduleError::InvalidDisplay); }
         if self.entries.len() >= MAX_DISPLAYS { return Err(ScheduleError::TooManyDisplays); }
@@ -199,20 +206,27 @@ impl DisplayCadences {
     /// Return and reserve at most one currently due display. When none are due,
     /// returns the shortest wait, or `None` when no displays are registered.
     pub fn next_due(&mut self, now: Instant) -> Result<(Option<u32>, Option<Duration>), ScheduleError> {
+        self.next_due_blocked(now, &std::collections::HashMap::new())
+    }
+    /// Like `next_due`, but skip displays with an externally supplied positive
+    /// wait. A display is ready only when both its cadence and block have
+    /// elapsed; choose the shortest combined delay when nothing is ready.
+    /// Callers must construct blocks from trusted local monotonic bookkeeping.
+    pub fn next_due_blocked(&mut self, now: Instant, blocked: &std::collections::HashMap<u32, Duration>) -> Result<(Option<u32>, Option<Duration>), ScheduleError> {
         if self.entries.is_empty() { return Ok((None, None)); }
         let mut min_wait: Option<Duration> = None;
         for step in 0..self.entries.len() {
             let index = (self.cursor + step) % self.entries.len();
-            match self.entries[index].1.remaining(now)? {
-                None => {
-                    let (id, cadence) = &mut self.entries[index];
-                    cadence.begin_attempt(now)?;
-                    let display = *id;
-                    self.cursor = (index + 1) % self.entries.len();
-                    return Ok((Some(display), None));
-                },
-                Some(wait) => min_wait = Some(min_wait.map_or(wait, |current| current.min(wait))),
+            let (id, cadence) = &self.entries[index];
+            let delay = cadence.remaining(now)?.unwrap_or(Duration::ZERO).max(blocked.get(id).copied().unwrap_or(Duration::ZERO));
+            if delay.is_zero() {
+                let (id, cadence) = &mut self.entries[index];
+                cadence.begin_attempt(now)?;
+                let display = *id;
+                self.cursor = (index + 1) % self.entries.len();
+                return Ok((Some(display), None));
             }
+            min_wait = Some(min_wait.map_or(delay, |current| current.min(delay)));
         }
         Ok((None, min_wait))
     }
@@ -233,6 +247,15 @@ mod multi_tests {
         assert_eq!(cadence.next_due(later).unwrap().0, Some(1));
         assert_eq!(cadence.next_due(later).unwrap().1, Some(Duration::from_millis(100)));
         assert!(cadence.remove(0)); assert!(!cadence.remove(0));
+    }
+    #[test]
+    fn blocked_display_does_not_starve_other_streams() {
+        let t = Instant::now(); let mut cadence = DisplayCadences::new();
+        cadence.add(0, 10).unwrap(); cadence.add(1, 10).unwrap();
+        let mut blocked = std::collections::HashMap::new(); blocked.insert(0, Duration::from_secs(2));
+        assert_eq!(cadence.next_due_blocked(t, &blocked).unwrap().0, Some(1));
+        assert_eq!(cadence.next_due_blocked(t, &blocked).unwrap().1, Some(Duration::from_millis(100)));
+        blocked.clear(); assert_eq!(cadence.next_due_blocked(t, &blocked).unwrap().0, Some(0));
     }
     #[test]
     fn clock_regression_and_duplicates_are_rejected() {

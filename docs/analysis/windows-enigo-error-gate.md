@@ -1,0 +1,85 @@
+# Windows Enigo error-formatting gate — static finding, unverified
+
+## Scope and evidence
+
+The pinned source at `23e5bb471a040d62f0a6ad52591fb30784265b73`,
+`libs/enigo/src/win/win_impl.rs::get_error`, initializes a `Vec<u16>` to 256
+units and passes `buff_size + 1` as `FormatMessageW`'s buffer capacity. It then
+uses `chars_copied` as an index before trimming. A successful 256-unit result
+would index at the vector's length and panic; the declared 257-unit capacity
+can also allow the OS to write beyond the advertised Rust buffer/allocation.
+The RustDesk source calls this helper on a failed `SendInput` in `mouse_down`
+and `key_down`; the experimental `remote_input::windows::WindowsInput` invokes
+both. Error delivery can already be partial, and other Enigo input operations
+can also hide native failures. This analysis has not reproduced an actual
+Windows error message of that length or measured a memory corruption.
+
+## Required disposition before Windows input use
+
+Do not deploy or enable the experimental Windows input backend. Preserve the
+original RustDesk tree; use a reviewed independently maintained fork/extracted
+copy, or an explicitly reviewed safe Windows adapter, without silently
+removing input functionality. Pin its provenance and licensing, review its
+public API and source compatibility, and retain a clear migration/patch record.
+This is an open implementation/security decision, not an approved source patch.
+
+The fix must supply the **actual** initialized buffer capacity to Windows,
+check the returned count before slicing/indexing, handle zero and boundary
+results without reading the terminator as data, and never trust a count greater
+than the real buffer. Preserve meaningful error reporting and capture the
+native error code before subsequent OS calls can overwrite it. A reviewed
+alternative is to report the numeric OS error directly and avoid hand-written
+message formatting; either choice needs compatibility review. The helper is not
+the only unsafe/native input code, so audit its callers and cleanup semantics.
+
+## Validation after a reviewed fix
+
+- Unit-test count 0, ordinary message, largest fitting message, rejected or
+  malformed count equal to/greater than capacity, UTF-16 decode behavior and
+  trailing whitespace/control handling using a mock that never writes outside
+  its test buffer. Test exact error propagation on each call site.
+- Run Windows-specific synthetic and real SendInput failure scenarios on an
+  explicitly authorized disposable desktop; inspect returned results, partial
+  input, held-key/button release, UAC/UIPI and denied-desktop behavior.
+- Use appropriate Windows memory-safety tooling to exercise actual
+  `FormatMessageW`; a mock, Rust parser or successful CI compilation alone does
+  not establish memory safety. Review debug/release overflow behavior.
+- Rebuild and rerun the complete Rust workspace, Node addon, affected features
+  and real two-system validation only after extraction and toolchain setup.
+  Record test commands, platform/toolchain, skips and results accurately.
+
+## Related process-wide keyboard-layout race
+
+The same pinned file declares mutable process-global `static mut LAYOUT`.
+`keybd_event` reads/writes it without synchronization when deriving a scan code,
+and `get_layoutdependent_keycode` resets and rewrites it. The adapter's raw
+virtual-key path invokes `keybd_event` with a zero scan code; the source Enigo
+Unicode sequence path also passes zero, so the concern is not confined to
+`Key::Layout` events. RustDesk's input
+service ordinarily uses its shared `ENIGO` mutex for its own paths, but the
+extracted `WindowsInput::new` can create separate backends and the provisional
+`InputArbiter` is optional and only coordinates callers that share it. If two
+threads reach these source accesses concurrently without a common lock, a
+read/write or write/write data race is possible. The prototype does not prove
+that all uses of the source Enigo instance are serialized, and external source
+users inside the same process can bypass the optional arbiter. This is a static
+risk analysis; a race has not been reproduced.
+
+The independent fix/review must remove or synchronize the process-global mutable
+layout state across **all** relevant Enigo paths, while also preserving or
+explicitly documenting foreground-layout semantics. A local controller mutex or
+an OS-wide ownership assertion alone does not protect uncooperative callers.
+Review whether per-operation layout lookup can replace shared mutable state;
+validate concurrent clients and layout/focus changes with appropriate tooling
+and an authorized Windows desktop. No fix or test is claimed here.
+
+The pinned `libs/enigo/Cargo.toml` declares `MIT` and its tree contains
+`libs/enigo/LICENSE`; any independent copy must retain notices and source
+provenance. This observation is not legal clearance for the full RustDesk
+extraction or its transitive dependencies (the repository root is AGPL-3.0).
+
+Dependency provenance is also unresolved: the baseline Enigo manifest names a
+Git `rdev` without an explicit revision and a `tfc` Git branch, while the
+candidate's inherited lockfile has not been resolved for the extracted
+workspace. A fork must retain required functionality and pin/review its actual
+resolved graph; the current static path audit does not check those Git sources.

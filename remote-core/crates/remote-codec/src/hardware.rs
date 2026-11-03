@@ -128,10 +128,19 @@ impl HardwareEncoder {
         };
         if result != 0 { return Err(codec_error(format!("libyuv NV12 conversion failed: {result}"))); }
         // Temporarily take the buffer to avoid borrowing self both mutably and immutably.
-        let data = std::mem::take(&mut self.buffer);
+        let mut data = zeroize::Zeroizing::new(std::mem::take(&mut self.buffer));
         let encoded = self.encode_nv12(&data, pts_ms);
-        self.buffer = data;
+        self.buffer = std::mem::take(&mut *data);
         encoded
+    }
+}
+
+// Best effort only: this wrapper's current NV12 slice is scrubbed. Driver,
+// native codec, old allocations, copies and process termination are not.
+impl Drop for HardwareEncoder {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.buffer.as_mut_slice().zeroize();
     }
 }
 
@@ -145,6 +154,13 @@ pub struct HardwareDecoder {
     codec: HardwareCodec,
     rgb: ImageRgb,
     texture: ImageTexture,
+}
+// Does not erase native decoder/driver allocations or prior RGB buffers.
+impl Drop for HardwareDecoder {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.rgb.raw.as_mut_slice().zeroize();
+    }
 }
 impl HardwareDecoder {
     /// Create a RAM decoder selected by the source cached hardware config.
