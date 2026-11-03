@@ -51,9 +51,12 @@ jobs:
           import pathlib, sys
           lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
           lines = [line for line in lines if len(line) < 1000]
-          text = "\n".join(lines[-80:])[-12000:]
-          text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          print("::error::" + text)
+          starts = [i for i, line in enumerate(lines) if line.startswith(("error[", "error:"))]
+          blocks = ["\n".join(lines[i:min(i + 18, starts[n + 1] if n + 1 < len(starts) else len(lines))])[:3000]
+                    for n, i in enumerate(starts)] or ["\n".join(lines[-30:])[-3000:]]
+          for text in blocks:
+              text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print("::error::" + text)
           PYCODE
               return 1
             fi
@@ -139,9 +142,12 @@ jobs:
           import pathlib, sys
           lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
           lines = [line for line in lines if len(line) < 1000]
-          text = "\n".join(lines[-80:])[-12000:]
-          text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          print("::error::" + text)
+          starts = [i for i, line in enumerate(lines) if line.startswith(("error[", "error:"))]
+          blocks = ["\n".join(lines[i:min(i + 18, starts[n + 1] if n + 1 < len(starts) else len(lines))])[:3000]
+                    for n, i in enumerate(starts)] or ["\n".join(lines[-30:])[-3000:]]
+          for text in blocks:
+              text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print("::error::" + text)
           PYCODE
               return 1
             fi

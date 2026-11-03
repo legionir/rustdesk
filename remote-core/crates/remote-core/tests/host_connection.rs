@@ -690,11 +690,11 @@ impl NetworkTransport for PausableTcp {
             if self.pause.load(std::sync::atomic::Ordering::SeqCst) {
                 let _close_on_cancel = ClosePaused(&mut self.inner);
                 std::future::pending::<Result<(), remote_transport::NetworkTransportError>>().await
-            } else { self.inner.send(bytes, deadline).await }
+            } else { NetworkTransport::send(&mut self.inner, bytes, deadline).await }
         })
     }
     fn receive(&mut self, deadline: Duration) -> remote_transport::TransportFuture<'_, Result<Box<[u8]>, remote_transport::NetworkTransportError>> {
-        self.inner.receive(deadline)
+        NetworkTransport::receive(&mut self.inner, deadline)
     }
     fn close(&mut self) { self.inner.close(); }
 }
