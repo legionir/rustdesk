@@ -992,4 +992,32 @@ mod partial_release_cleanup_tests {
         input.close().unwrap();
         assert_eq!(&*events.borrow(), &["key:65", "button:Left", "key:65"]);
     }
+    #[test]
+    fn failed_mouse_revocation_cleans_keyboard_and_retains_failed_button() {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let failures = Rc::new(RefCell::new(vec!["button:Left".to_owned()]));
+        let mut input = InputController::new(Backend { events: events.clone(), failures: failures.clone() });
+        input.set_permissions(Permissions { keyboard: true, mouse: true }).unwrap();
+        input.key_down(VirtualKey::new(65).unwrap()).unwrap();
+        input.mouse_down(MouseButton::Left).unwrap();
+        assert!(matches!(input.set_permissions(Permissions { keyboard: true, mouse: false }), Err(InputError::Backend(_))));
+        assert_eq!(&*events.borrow(), &["button:Left", "key:65"]);
+        failures.borrow_mut().clear(); input.close().unwrap();
+        assert_eq!(&*events.borrow(), &["button:Left", "key:65", "button:Left"]);
+    }
+
+    #[test]
+    fn failed_combined_revocation_does_not_retry_during_same_pass() {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let failures = Rc::new(RefCell::new(vec!["key:65".to_owned(), "button:Left".to_owned()]));
+        let mut input = InputController::new(Backend { events: events.clone(), failures: failures.clone() });
+        input.set_permissions(Permissions { keyboard: true, mouse: true }).unwrap();
+        input.key_down(VirtualKey::new(65).unwrap()).unwrap();
+        input.mouse_down(MouseButton::Left).unwrap();
+        assert!(matches!(input.set_permissions(Permissions::default()), Err(InputError::Backend(_))));
+        assert_eq!(&*events.borrow(), &["key:65", "button:Left"]);
+        failures.borrow_mut().clear(); input.close().unwrap();
+        assert_eq!(&*events.borrow(), &["key:65", "button:Left", "key:65", "button:Left"]);
+    }
+
 }
