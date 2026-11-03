@@ -105,8 +105,9 @@ recovered because the protected value is just an opaque handle.
 
 The pure formatting tests are compiled into `remote-input` without Windows
 input side effects, covering zero, maximal-fitting and invalid counts, trimming
-and malformed UTF-16. These are not a real `FormatMessageW` or concurrency
-test. The original Enigo still exists in the candidate source for provenance;
+and malformed UTF-16. Separate synthetic threaded tests exercise the exact
+layout-cache mutex and poison recovery without input injection. These do not
+exercise the real `FormatMessageW`, native layout APIs or OS input concurrency. The original Enigo still exists in the candidate source for provenance;
 other consumers must not accidentally depend on it. The copy retains unpinned
 upstream Git declarations, and no lockfile or license clearance is implied.
 The fork needs Windows build, tests, independent review, native failure and
