@@ -129,3 +129,19 @@ The pure formatter and synthetic mutex fixtures were part of workspace tests.
 It did not exercise native Windows input, a deliberate SendInput failure,
 memory-safety instrumentation or real focus/layout concurrency. Independent
 review and those native tests are still required before closing this gate.
+
+## Additional modifier cleanup concern
+
+Static review of the copied `win_impl.rs::key_down(Key::Layout(_))` found that
+it presses required Shift/Control/Alt modifiers in a loop using `?`. If a
+later modifier press fails, the function returns before its reverse release
+loop, so modifiers pressed earlier in that operation may remain held. The
+fork's improved error reporting can make this failure path observable in cases
+where the original returned an empty error. This has not been reproduced on a
+Windows desktop. The current `remote-input::WindowsInput` virtual-key adapter
+uses `Key::Raw`, not this `Key::Layout` branch, but the copied Enigo crate
+still exposes it and other consumers could call it. Further review must cover
+rollback on partial modifier setup, pre-existing physical/remote key state,
+concurrent senders, and the fact that source `key_up` is infallible and may
+silently fail. A best-effort release is not evidence that the OS released the
+key; do not enable the backend on this analysis alone.
