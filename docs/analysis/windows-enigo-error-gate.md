@@ -192,3 +192,11 @@ return is not proof that the intended application processed the event, and
 other input operations such as mouse movement, scroll and text may still hide
 native failures. Releases can affect physically held inputs or other processes.
 The extension is not approved for use until Windows review and real tests.
+
+CI [41615318903](https://github.com/legionir/rustdesk/actions/runs/41615318903)
+at `623b9b5639a9b641d440c97d585885d84d464a83` passed Linux and Windows
+workspace checks/tests, Node addon, exported-candidate checks and local
+transport. The new cleanup and result-classification fixtures used fake
+backends; no real SendInput release or interactive Windows desktop was tested.
+This is not a two-system, OS input safety or security review, and the gate
+remains open.
