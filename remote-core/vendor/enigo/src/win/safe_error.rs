@@ -86,13 +86,12 @@ mod tests {
     #[test]
     fn native_format_message_respects_supplied_buffer_capacity() {
         use winapi::um::winbase::{FormatMessageW, FORMAT_MESSAGE_FROM_STRING, FORMAT_MESSAGE_IGNORE_INSERTS};
-        use std::ffi::c_void;
         for (message, expected_count) in [("1234567", 7), ("12345678", 0)] {
             let source: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
             let mut guarded = [0xBEEFu16; 10];
             let count = unsafe {
                 FormatMessageW(FORMAT_MESSAGE_FROM_STRING | FORMAT_MESSAGE_IGNORE_INSERTS,
-                    source.as_ptr() as *const c_void, 0, 0, guarded.as_mut_ptr().add(1), 8,
+                    source.as_ptr() as _, 0, 0, guarded.as_mut_ptr().add(1), 8,
                     std::ptr::null_mut())
             };
             assert_eq!(count, expected_count);

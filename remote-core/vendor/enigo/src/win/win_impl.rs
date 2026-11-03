@@ -52,14 +52,7 @@ fn keybd_event(mut flags: u32, vk: u16, scan: u16) -> DWORD {
     unsafe {
         // https://github.com/rustdesk/rustdesk/issues/366
         if scan == 0 {
-            scan = LAYOUT.with(|layout| {
-                if *layout == 0 {
-                    let current_window_thread_id =
-                        GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
-                    *layout = GetKeyboardLayout(current_window_thread_id) as usize;
-                }
-                MapVirtualKeyExW(vk as _, 0, *layout as HKL) as _
-            });
+            scan = LAYOUT.map_scan(vk);
         }
     }
 
@@ -460,11 +453,6 @@ impl Enigo {
     fn get_layoutdependent_keycode(&self, chr: char) -> u16 {
         // As in the source, update the process-wide cache whenever a Layout
         // key is translated. Hold the same lock used by keybd_event.
-        LAYOUT.with(|layout| {
-            let current_window_thread_id =
-                unsafe { GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut()) };
-            *layout = unsafe { GetKeyboardLayout(current_window_thread_id) } as usize;
-            unsafe { VkKeyScanExW(chr as _, *layout as HKL) as _ }
-        })
+        LAYOUT.map_character(chr)
     }
 }
