@@ -69,7 +69,7 @@ bridge yet.
 
 **Blocking safety concern:** the pinned source Enigo Windows `get_error`
 passes a 257-code-unit capacity to a 256-unit buffer and can index at the
-buffer length on certain long system error messages. The experimental Windows
+buffer length on certain long system error messages. The original Windows
 input backend reaches that path after failed mouse/key `SendInput` calls.
 The risk is based on static source inspection and has not been reproduced.
 The adapter now uses a source-derived fork with candidate fixes for this buffer

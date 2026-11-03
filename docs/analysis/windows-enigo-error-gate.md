@@ -9,8 +9,8 @@ uses `chars_copied` as an index before trimming. A successful 256-unit result
 would index at the vector's length and panic; the declared 257-unit capacity
 can also allow the OS to write beyond the advertised Rust buffer/allocation.
 The RustDesk source calls this helper on a failed `SendInput` in `mouse_down`
-and `key_down`; the experimental `remote_input::windows::WindowsInput` invokes
-both. Error delivery can already be partial, and other Enigo input operations
+and `key_down`; the experimental `remote_input::windows::WindowsInput` used
+to call that original backend and now calls the candidate fork described below. Error delivery can already be partial, and other Enigo input operations
 can also hide native failures. This analysis has not reproduced an actual
 Windows error message of that length or measured a memory corruption.
 

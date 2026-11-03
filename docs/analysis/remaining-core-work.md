@@ -1204,8 +1204,8 @@ its buffer capacity. A sufficiently long formatted system error could therefore
 cause Windows to write beyond the initialized buffer/allocation. In addition,
 `buff[chars_copied]` can be out of range when the returned count reaches 256.
 This path is reachable when source `SendInput` fails in `mouse_down` or
-`key_down`, both used by experimental `remote-input::windows::WindowsInput`.
-Whether a particular Windows error triggers either condition has not been
+`key_down`, both used by `remote-input::windows::WindowsInput` before the
+candidate fork was selected. Whether a particular Windows error triggers either condition has not been
 experimentally verified; the mismatch itself is visible in the source. The
 Windows input adapter must not be considered safe or production-ready.
 
