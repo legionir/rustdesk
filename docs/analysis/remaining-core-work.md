@@ -1231,3 +1231,20 @@ Windows adapter. The source tree is unchanged. The patch is not a completed
 security review or real-Windows validation; the input gate remains in force.
 See `windows-enigo-error-gate.md` for provenance, changed error behavior,
 limitations and required tests.
+
+### Per-session display-change notification candidate
+
+`remote_core::display_delivery` adds caller-owned change coalescing for the
+bounded existing `PeerInfo` display subset, and
+`HostConnection::send_tracked_display_update` can explicitly send it to the
+matching authorized view session. This is inspired by source
+`SyncDisplaysInfo::{check_changed,get_update_sync_displays}`, not equivalent:
+source uses a process-global dirty flag and can suppress notifications during a
+temporary ignore scope; this candidate is per session, commits after local send
+and coalesces a change that reverts before send. Original resolutions and
+platform additions are not tracked. The caller must use this book exclusively
+for those updates, discard it at permission/desktop/reconnect boundaries,
+re-enumerate with consent, and coordinate capture/decoder restart; no automatic
+sampling, hotplug detection, scheduler or native operation is supplied. Local
+send success does not mean a peer received the update; failed or cancelled
+sends poison the book and the connection must be closed, not blindly retried.
