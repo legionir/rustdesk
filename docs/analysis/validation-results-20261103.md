@@ -20,3 +20,18 @@ Windows desktop, security, or two-system interoperability.
 The Windows Enigo safety gate remains unresolved; see
 `windows-enigo-error-gate.md`. Do not exercise Windows input before a reviewed
 fix and dedicated validation. Extraction remains incomplete.
+
+## GitHub Actions follow-up
+
+[Run 41559651038](https://github.com/legionir/rustdesk/actions/runs/41559651038)
+on commit `7f71f42dd77a700ca887c2b6f0cf0ab255002057` completed successfully:
+Linux workspace checks/tests, Node addon, exported candidate and Xvfb capture;
+Windows workspace checks/tests, Node addon and exported candidate; and local
+transport on both platforms. The workflow also exercises the optional
+`source-totp` feature. Earlier runs exposed compile errors and Windows timer
+fixture assumptions, which were corrected before this successful run.
+
+Hosted CI does not exercise a real interactive Windows desktop, input injection,
+real GPU capture, two physical systems, or all feature combinations. It is not
+security, protocol or license validation. The unresolved Windows Enigo safety
+gate remains in force and extraction remains incomplete.
