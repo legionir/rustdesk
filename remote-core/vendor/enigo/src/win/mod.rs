@@ -3,6 +3,7 @@ mod modifier_scope;
 mod mouse_plan;
 mod safe_error;
 mod send_result;
+mod unicode_sequence;
 mod win_impl;
 
 pub mod keycodes;

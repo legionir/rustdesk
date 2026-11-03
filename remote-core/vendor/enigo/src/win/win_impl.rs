@@ -289,6 +289,18 @@ impl KeyboardControllable for Enigo {
 }
 
 impl Enigo {
+    /// Emit the source Unicode sequence, reporting the first detectable
+    /// SendInput failure. Source supplementary scalars generate two downs and
+    /// no ups; earlier events may have been delivered and are not undone.
+    /// This fork extension does not change the source trait's `key_sequence`.
+    pub fn try_source_unicode_sequence(&mut self, text: &str) -> crate::ResultType {
+        super::unicode_sequence::send_sequence(text, |unit, up| {
+            let flags = if up { KEYEVENTF_UNICODE | KEYEVENTF_KEYUP } else { KEYEVENTF_UNICODE };
+            super::send_result::check_send(|| keybd_event(flags, 0, unit), get_error)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })
+        })
+    }
+
     /// Move in virtual-desktop coordinates, reporting unavailable screen
     /// metrics or a detectable SendInput failure. This does not prove delivery.
     /// The source trait method remains available and retains its old behavior.

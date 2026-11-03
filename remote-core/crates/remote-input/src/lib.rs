@@ -491,9 +491,9 @@ pub mod windows {
     /// contains candidate fixes for the source error buffer and shared layout
     /// race, but this is not proof of safety. See the Windows safety gate in
     /// docs/analysis; do not enable this backend until that gate is cleared.
-    /// The fork reports zero-event SendInput results for tracked raw-key and
-    /// mouse-button releases and movement/scroll, but other paths still hide
-    /// failures. Success is not delivery proof; secure desktops and UIPI can block input.
+    /// The fork reports zero-event SendInput results for tracked releases,
+    /// movement/scroll and Unicode sequences, but other failures may be hidden.
+    /// Success is not delivery proof; secure desktops and UIPI can block input.
     pub struct WindowsInput { inner: Enigo }
     impl Default for WindowsInput { fn default() -> Self { Self::new() } }
     impl WindowsInput {
@@ -547,7 +547,7 @@ pub mod windows {
             rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::RawKey(rdev::RawKey::WinVirtualKeycode(key.code() as u32))))
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("rdev virtual release: {e:?}")))
         }
-        fn type_text(&mut self, text: &str) -> io::Result<()> { self.inner.key_sequence(text); Ok(()) }
+        fn type_text(&mut self, text: &str) -> io::Result<()> { self.inner.try_source_unicode_sequence(text).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
     }
 }
 
@@ -1038,3 +1038,8 @@ mod forked_enigo_send_result_tests;
 #[cfg(test)]
 #[path = "../../../vendor/enigo/src/win/mouse_plan.rs"]
 mod forked_enigo_mouse_plan_tests;
+
+// Exercise source-compatible Unicode event ordering with a fake sender.
+#[cfg(test)]
+#[path = "../../../vendor/enigo/src/win/unicode_sequence.rs"]
+mod forked_enigo_unicode_sequence_tests;
