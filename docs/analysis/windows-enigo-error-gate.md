@@ -90,10 +90,14 @@ The fork now contains Windows-only tests that call its actual bounded system
 error formatter after setting a controlled thread-local Windows error, and
 call `FormatMessageW` with guarded buffers and test strings at the capacity
 boundary. Concurrent threads also call the fork's actual synchronized native
-layout lookup helpers; they do not call `SendInput`. These fixtures have been
-written but their outcome must be taken from the subsequent CI run. They do
-not simulate focus changes, prove delivery, test UIPI or exercise intentional
-SendInput failure, and are not a substitute for memory-safety tooling or review.
+layout lookup helpers; they do not call `SendInput`. They passed as part of
+[CI run 41593701213](https://github.com/legionir/rustdesk/actions/runs/41593701213)
+on `39ff8773fdb651f73f2a2c2752976a29f7112747`, which also passed Linux,
+Windows, Node addon, exported-candidate and local transport jobs. The fake
+modifier rollback fixtures were included in the workspace tests. The native
+fixtures do not simulate focus changes, prove delivery, test UIPI or exercise
+intentional SendInput failure, and are not a substitute for memory-safety
+tooling or independent review.
 
 ## Candidate fork (not a gate clearance)
 
