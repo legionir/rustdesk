@@ -52,3 +52,18 @@ with 471 hashed files; manifest verification and the limited path auditor
 accepted 16 manifests and 44 edges. These checks do not establish authenticity,
 license clearance, dependency closure, or independent-product readiness. Eleven
 Python exporter/auditor tests passed locally; Cargo was unavailable locally.
+
+## Display-change delivery candidate
+
+GitHub Actions [run 41648024023](https://github.com/legionir/rustdesk/actions/runs/41648024023)
+passed all four jobs for `fe8b6bb8fbaab745e1ae48710bbc4d4106705149`:
+Linux and Windows workspace, Node addon and exported-source candidate steps,
+plus local transport on both platforms. The display tests use synthetic
+snapshots and loopback/fault transports; they do not exercise real hotplug,
+physical display identity, consent, monitor capture or two-system delivery.
+
+The exported candidate `/home/user/remote-core-display-final-20261103` has 472
+hashed files; manifest verification and limited path auditing accepted 16
+manifests and 44 edges. Eleven local Python tests and 14 Node mock tests
+passed. Cargo is unavailable locally; these export checks are not a dependency,
+license, authenticity or security audit. The Windows input gate remains open.
