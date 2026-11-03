@@ -387,5 +387,7 @@ failure paths. No source edit or runtime confirmation has been made here.
 
 A limited subset of the Python export/auditor fixtures and JavaScript-only
 diagnostic fixtures was run on 2026-11-03. See
-`validation-results-20261103.md`; all native/Rust, Node addon and real
-two-system checks described above remain outstanding.
+`validation-results-20261103.md`. Later CI runs have built and tested a subset
+of Rust and Node functionality on Linux and Windows; see the Windows gate
+report for the latest fork run. Real two-system, interactive Windows input and
+the other deferred platform, security and feature checks remain outstanding.

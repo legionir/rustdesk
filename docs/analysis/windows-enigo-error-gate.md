@@ -110,5 +110,10 @@ layout-cache mutex and poison recovery without input injection. These do not
 exercise the real `FormatMessageW`, native layout APIs or OS input concurrency. The original Enigo still exists in the candidate source for provenance;
 other consumers must not accidentally depend on it. The copy retains unpinned
 upstream Git declarations, and no lockfile or license clearance is implied.
-The fork needs Windows build, tests, independent review, native failure and
-concurrency testing before this gate can be closed.
+CI run [41572283211](https://github.com/legionir/rustdesk/actions/runs/41572283211)
+on `e1bcee65d66e88d22b3ae840d530c1f393444c40` built and tested the Windows
+workspace, Node addon and exported source candidate, and passed the Linux job.
+The pure formatter and synthetic mutex fixtures were part of workspace tests.
+It did not exercise native Windows input, a deliberate SendInput failure,
+memory-safety instrumentation or real focus/layout concurrency. Independent
+review and those native tests are still required before closing this gate.
