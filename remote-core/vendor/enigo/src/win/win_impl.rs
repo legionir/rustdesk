@@ -1,16 +1,11 @@
 use self::winapi::ctypes::c_int;
 use self::winapi::shared::{basetsd::ULONG_PTR, minwindef::*, windef::*};
-use self::winapi::um::winbase::*;
 use self::winapi::um::winuser::*;
 use winapi;
 
 use crate::win::keycodes::*;
 use crate::{Key, KeyboardControllable, MouseButton, MouseControllable};
 use std::mem::*;
-
-extern "system" {
-    pub fn GetLastError() -> DWORD;
-}
 
 /// The main struct for handling the event emitting
 #[derive(Default)]
@@ -97,23 +92,7 @@ fn keybd_event(mut flags: u32, vk: u16, scan: u16) -> DWORD {
 }
 
 fn get_error() -> String {
-    // Capture first: allocations and any subsequent Windows calls may change it.
-    let errno = unsafe { GetLastError() };
-    let mut buffer = [0u16; 256];
-    let count = unsafe {
-        FormatMessageW(
-            FORMAT_MESSAGE_IGNORE_INSERTS
-                | FORMAT_MESSAGE_FROM_SYSTEM
-                | FORMAT_MESSAGE_ARGUMENT_ARRAY,
-            std::ptr::null(),
-            errno,
-            0,
-            buffer.as_mut_ptr(),
-            buffer.len() as u32,
-            std::ptr::null_mut(),
-        )
-    };
-    super::safe_error::format_error(errno, &buffer, count as usize)
+    super::safe_error::last_input_error()
 }
 
 impl MouseControllable for Enigo {
