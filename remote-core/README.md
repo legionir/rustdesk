@@ -71,15 +71,16 @@ bridge yet.
 passes a 257-code-unit capacity to a 256-unit buffer and can index at the
 buffer length on certain long system error messages. The experimental Windows
 input backend reaches that path after failed mouse/key `SendInput` calls.
-The risk is based on static source inspection and has not been reproduced or
-fixed. Do not enable this backend until an independently maintained fix is
-reviewed, built and validated on disposable Windows. See
+The risk is based on static source inspection and has not been reproduced.
+The adapter now uses a source-derived fork with candidate fixes for this buffer
+and the layout race. Those fixes have not cleared independent review or native
+validation. Do not enable the backend until the gate is cleared. See
 `../docs/analysis/remaining-core-work.md` for the exact scope and next steps.
 The Windows local-pipeline, loopback-session and multi-display examples also
 construct this backend, even though their current policies grant view only;
 defer running them until the gate has been reviewed.
 
-`remote-input` wraps the source Enigo Windows backend and tracks held virtual
+`remote-input` wraps a source-derived Enigo Windows fork and tracks held virtual
 keys and mouse buttons per controller. Permissions default to denied; revocation
 and `close()` attempt cleanup. Windows Enigo does not report all `SendInput`
 failures, so a successful release is not proof that Windows accepted it. Drop

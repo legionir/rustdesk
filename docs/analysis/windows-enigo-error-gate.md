@@ -21,7 +21,7 @@ original RustDesk tree; use a reviewed independently maintained fork/extracted
 copy, or an explicitly reviewed safe Windows adapter, without silently
 removing input functionality. Pin its provenance and licensing, review its
 public API and source compatibility, and retain a clear migration/patch record.
-This is an open implementation/security decision, not an approved source patch.
+An experimental independent fork is now present, but it is not yet reviewed or approved for input use.
 
 The fix must supply the **actual** initialized buffer capacity to Windows,
 check the returned count before slicing/indexing, handle zero and boundary
@@ -71,7 +71,7 @@ explicitly documenting foreground-layout semantics. A local controller mutex or
 an OS-wide ownership assertion alone does not protect uncooperative callers.
 Review whether per-operation layout lookup can replace shared mutable state;
 validate concurrent clients and layout/focus changes with appropriate tooling
-and an authorized Windows desktop. No fix or test is claimed here.
+and an authorized Windows desktop. The candidate fork is described below.
 
 The pinned `libs/enigo/Cargo.toml` declares `MIT` and its tree contains
 `libs/enigo/LICENSE`; any independent copy must retain notices and source
@@ -83,3 +83,31 @@ Git `rdev` without an explicit revision and a `tfc` Git branch, while the
 candidate's inherited lockfile has not been resolved for the extracted
 workspace. A fork must retain required functionality and pin/review its actual
 resolved graph; the current static path audit does not check those Git sources.
+
+## Candidate fork (not a gate clearance)
+
+`remote-core/vendor/enigo` was copied from the exact RustDesk baseline above,
+retaining the MIT LICENSE and source tree. The initial copy also normalized
+trailing whitespace in README and .travis.yml. The original `libs/enigo` is
+unchanged. The manifest's sibling path dependencies were adjusted to the
+export tree, and Windows `remote-input` now resolves to this fork.
+
+The fork captures `GetLastError` before allocating, supplies the actual
+initialized 256-unit buffer length, checks the returned length before slicing,
+and returns a numeric fallback even when formatting fails or the code is zero.
+Errors now include a numeric code and a SendInput prefix; unlike the original,
+a failed SendInput no longer becomes success solely because formatting failed.
+The original process-global cached layout is retained behind a single mutex,
+including both update and mapping paths. This preserves a shared cache but
+does not make focus changes atomic across an entire key sequence; unrelated
+input callers and OS processes can still interfere. Mutex poisoning is
+recovered because the protected value is just an opaque handle.
+
+The pure formatting tests are compiled into `remote-input` without Windows
+input side effects, covering zero, maximal-fitting and invalid counts, trimming
+and malformed UTF-16. These are not a real `FormatMessageW` or concurrency
+test. The original Enigo still exists in the candidate source for provenance;
+other consumers must not accidentally depend on it. The copy retains unpinned
+upstream Git declarations, and no lockfile or license clearance is implied.
+The fork needs Windows build, tests, independent review, native failure and
+concurrency testing before this gate can be closed.

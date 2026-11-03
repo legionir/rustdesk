@@ -449,7 +449,7 @@ impl<B: InputBackend> Drop for InputController<B> {
     fn drop(&mut self) { let _ = self.close(); }
 }
 
-/// The Windows adapter reuses RustDesk's Enigo `SendInput` implementation.
+/// The Windows adapter uses the source-derived, independently patched Enigo fork.
 #[cfg(windows)]
 pub mod windows {
     use super::{InputBackend, MouseButton, ScanCode, VirtualKey};
@@ -457,10 +457,10 @@ pub mod windows {
     use std::io;
 
     /// Windows input backend. Operations affect the interactive desktop.
-    /// BLOCKED pending review: the pinned Enigo error formatter advertises a
-    /// larger buffer than it initializes and its global layout state is not
-    /// synchronized across independent instances. See the Windows safety gate
-    /// in docs/analysis; do not enable this backend until fixed and validated.
+    /// BLOCKED pending independent review and Windows validation. A copied fork
+    /// contains candidate fixes for the source error buffer and shared layout
+    /// race, but this is not proof of safety. See the Windows safety gate in
+    /// docs/analysis; do not enable this backend until that gate is cleared.
     /// Enigo does not report every SendInput failure, especially on release,
     /// cursor movement and scroll. Elevated/secure desktops and UIPI can block input.
     pub struct WindowsInput { inner: Enigo }

@@ -1224,3 +1224,10 @@ unsynchronized mutable process-global keyboard-layout handle used by key
 injection. Multiple extracted backend instances can access it concurrently;
 optional per-application arbitration does not cover all paths. See
 `windows-enigo-error-gate.md` for the evidence and required concurrency review.
+
+**Candidate mitigation:** `remote-core/vendor/enigo` now contains an
+independent source-derived patch for these two findings and is selected by the
+Windows adapter. The source tree is unchanged. The patch is not a completed
+security review or real-Windows validation; the input gate remains in force.
+See `windows-enigo-error-gate.md` for provenance, changed error behavior,
+limitations and required tests.
