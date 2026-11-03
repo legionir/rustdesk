@@ -145,3 +145,12 @@ rollback on partial modifier setup, pre-existing physical/remote key state,
 concurrent senders, and the fact that source `key_up` is infallible and may
 silently fail. A best-effort release is not evidence that the OS released the
 key; do not enable the backend on this analysis alone.
+
+The candidate fork now attempts reverse-order release of successfully pressed
+modifiers when later setup or the main layout-key operation returns an error.
+The extracted `modifier_scope` is tested using a fake backend without injecting
+input. This is not a general ownership or OS-state solution: a failed press
+could have uncertain effects, `key_up` cannot report failure, pre-existing key
+state is not reconciled, and unwinding/panic or process termination can still
+interrupt cleanup. Its tests and native validation must be reported separately;
+the Windows input safety gate remains open.
