@@ -489,8 +489,9 @@ pub mod windows {
     /// contains candidate fixes for the source error buffer and shared layout
     /// race, but this is not proof of safety. See the Windows safety gate in
     /// docs/analysis; do not enable this backend until that gate is cleared.
-    /// Enigo does not report every SendInput failure, especially on release,
-    /// cursor movement and scroll. Elevated/secure desktops and UIPI can block input.
+    /// The fork reports zero-event SendInput results for tracked raw-key and
+    /// mouse-button releases, but other paths still hide failures. Success is
+    /// not delivery proof. Elevated/secure desktops and UIPI can block input.
     pub struct WindowsInput { inner: Enigo }
     impl Default for WindowsInput { fn default() -> Self { Self::new() } }
     impl WindowsInput {

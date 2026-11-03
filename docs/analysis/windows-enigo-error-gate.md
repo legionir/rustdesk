@@ -179,3 +179,16 @@ release call. The enclosing `HostConnection` aborts on detected dispatch
 failure and calls host `close`, which may retry the retained release immediately;
 `Drop` can also retry. Neither retry is proof of safety when OS state is
 uncertain, and consumers must review this composition before using input.
+
+## Candidate detectable-release extension
+
+The independent fork now exposes fallible raw virtual-key and mouse-button
+release methods; the `WindowsInput` adapter uses them instead of the source's
+void-returning release methods. Each checks the single-event `SendInput` return
+once and captures the error immediately on zero. Source Enigo's original
+trait methods remain available and unchanged. Pure fake tests cover call count
+and stale-error avoidance; this is not native failure injection. A nonzero
+return is not proof that the intended application processed the event, and
+other input operations such as mouse movement, scroll and text may still hide
+native failures. Releases can affect physically held inputs or other processes.
+The extension is not approved for use until Windows review and real tests.
