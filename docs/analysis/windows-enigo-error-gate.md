@@ -200,3 +200,20 @@ transport. The new cleanup and result-classification fixtures used fake
 backends; no real SendInput release or interactive Windows desktop was tested.
 This is not a two-system, OS input safety or security review, and the gate
 remains open.
+
+## Candidate movement, scroll and Unicode error reporting
+
+The independent Enigo fork now offers fallible movement, vertical/horizontal
+scroll and source-ordered Unicode sequence methods; the Windows adapter uses
+them. These methods report a zero-event `SendInput` result, and absolute
+movement rejects unavailable virtual-screen metrics rather than silently
+skipping. Successful event order is unchanged: vertical scroll precedes
+horizontal, BMP text uses a down/up pair, and supplementary source text still
+emits two downs without ups. On a detectable failure, remaining events are not
+sent or retried. Previously delivered movement, scroll or text cannot be
+undone. In particular, an accepted Unicode down followed by a failed up has
+no tracked cleanup record, and supplementary downs remain a source risk.
+These semantics differ from the original adapter's silent success and require
+review. Tests use fake senders and arithmetic models, not native injection.
+Nonzero `SendInput` results are not proof of application delivery, and human or
+other-process state is not protected. The Windows input gate remains open.

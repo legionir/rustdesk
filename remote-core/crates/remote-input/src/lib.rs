@@ -387,9 +387,9 @@ impl<B: InputBackend> InputController<B> {
         Ok(())
     }
     /// Inject bounded BMP text only when no keys are tracked as held by this
-    /// controller. The source Enigo backend cannot report Windows SendInput
-    /// failures, and local-human or other-process modifier state is not checked.
-    /// Non-BMP text remains unsupported here pending surrogate/cleanup tests.
+    /// controller. The Windows fork reports zero-event SendInput results, but
+    /// success is not delivery proof and other-process/human modifier state is
+    /// not checked. Non-BMP text remains unsupported pending cleanup tests.
     /// A detectable injection failure closes the controller; any partial text
     /// already delivered cannot be undone.
     pub fn type_text(&mut self, text: &str) -> Result<(), InputError> {
@@ -411,7 +411,7 @@ impl<B: InputBackend> InputController<B> {
     /// including supplementary UTF-16 surrogate downs without paired ups.
     /// This bypasses the normal BMP-only rule but still requires keyboard
     /// permission, bounded nonempty text and no locally tracked keys. It is
-    /// not an OS-wide input lock and cannot detect partial Enigo delivery.
+    /// not an OS-wide input lock and cannot establish delivery or undo output.
     /// A detectable backend error closes this controller; partial output cannot
     /// be undone. The caller must ensure the actual backend is Windows Enigo.
     pub fn type_text_source_windows(&mut self, text: &str, _: SourceWindowsUnicodeOptIn) -> Result<(), InputError> {
