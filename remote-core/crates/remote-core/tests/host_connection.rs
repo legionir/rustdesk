@@ -586,7 +586,8 @@ async fn original_display_resolution_claims_survive_login_and_update() {
     assert_eq!(viewer.original_resolutions().unwrap(), &[None]);
     assert!(viewer.supported_modes().is_none());
     let change = remote_protocol::display_control::DisplaySwitch { display: 0, x: 0, y: 0, width: 1280, height: 720, cursor_embedded: false };
-    let (sent, event) = tokio::join!(host.send_display_change_with_modes(&change, Some(&[mode]), Some(mode), WAIT), viewer.receive(WAIT));
+    let supported_modes = [mode];
+    let (sent, event) = tokio::join!(host.send_display_change_with_modes(&change, Some(&supported_modes), Some(mode), WAIT), viewer.receive(WAIT));
     sent.unwrap();
     match event.unwrap() {
         ViewerEvent::DisplayChanged { envelope, .. } => {
