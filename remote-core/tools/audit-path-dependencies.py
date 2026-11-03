@@ -93,8 +93,17 @@ def audit(root):
     workspace = workspace_manifest.get("workspace")
     if not isinstance(workspace, dict) or not isinstance(workspace.get("members"), list):
         raise ValueError("workspace members not explicitly listed")
-    if workspace.get("exclude"):
-        raise ValueError("workspace exclusions are not interpreted by this auditor")
+    exclusions = workspace.get("exclude", [])
+    if not isinstance(exclusions, list) or len(exclusions) > MAX_PACKAGES:
+        raise ValueError("invalid workspace exclusions")
+    excluded = []
+    for item in exclusions:
+        if not isinstance(item, str) or not portable_relative(item) or any(c in item for c in "*?[]"):
+            raise ValueError("workspace exclusion globs or nonportable paths are not supported")
+        path = inside(root, workspace_dir / item)
+        if path == workspace_dir or workspace_dir not in path.parents:
+            raise ValueError("workspace exclusion must be within the workspace")
+        excluded.append(path)
     members = workspace["members"]
     if not members or len(members) > MAX_PACKAGES:
         raise ValueError("invalid workspace member count")
@@ -102,7 +111,10 @@ def audit(root):
     for member in members:
         if not isinstance(member, str) or not portable_relative(member) or any(c in member for c in "*?[]"):
             raise ValueError("workspace member globs are not supported")
-        queue.append(inside(root, workspace_dir / member))
+        path = inside(root, workspace_dir / member)
+        if any(path == excluded_path or excluded_path in path.parents for excluded_path in excluded):
+            raise ValueError("explicit workspace member is excluded")
+        queue.append(path)
     visited = set()
     edges = 0
     while queue:

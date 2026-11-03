@@ -46,6 +46,21 @@ class AuditTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "globs"):
             audit_paths.audit(self.root)
 
+    def test_literal_exclusion_still_traverses_path_dependency(self):
+        self.write("remote-core/Cargo.toml", '[workspace]\nmembers = ["app"]\nexclude = ["vendor/lib"]\n')
+        self.write("remote-core/app/Cargo.toml", '[package]\nname = "app"\nversion = "0.0.0"\n[dependencies]\nlib = {path = "../vendor/lib"}\n')
+        self.write("remote-core/vendor/lib/Cargo.toml", '[package]\nname = "lib"\nversion = "0.0.0"\n')
+        self.assertEqual(audit_paths.audit(self.root), (3, 1))
+        (self.root / "remote-core/vendor/lib/Cargo.toml").unlink()
+        with self.assertRaisesRegex(ValueError, "missing Cargo.toml"):
+            audit_paths.audit(self.root)
+
+    def test_exclusion_globs_escape_and_conflicting_members_fail(self):
+        for excluded in ("vendor/*", "../libs", "app", "C:/foo"):
+            self.write("remote-core/Cargo.toml", f'[workspace]\nmembers = ["app"]\nexclude = ["{excluded}"]\n')
+            with self.subTest(excluded=excluded), self.assertRaises(ValueError):
+                audit_paths.audit(self.root)
+
     def test_manifest_symlink_escape_fails(self):
         outside = tempfile.TemporaryDirectory()
         try:
