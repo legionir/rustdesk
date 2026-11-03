@@ -15,7 +15,7 @@ impl LayoutCache {
     /// Source-style cached-layout scan mapping; no input event is sent.
     #[cfg(windows)]
     pub(crate) fn map_scan(&self, vk: u16) -> u16 {
-        use winapi::shared::windef::HKL;
+        use winapi::shared::minwindef::HKL;
         use winapi::um::winuser::{GetForegroundWindow, GetKeyboardLayout, GetWindowThreadProcessId, MapVirtualKeyExW};
         self.with(|layout| unsafe {
             if *layout == 0 {
@@ -29,7 +29,7 @@ impl LayoutCache {
     /// Source-style layout refresh and character mapping; no input event is sent.
     #[cfg(windows)]
     pub(crate) fn map_character(&self, chr: char) -> u16 {
-        use winapi::shared::windef::HKL;
+        use winapi::shared::minwindef::HKL;
         use winapi::um::winuser::{GetForegroundWindow, GetKeyboardLayout, GetWindowThreadProcessId, VkKeyScanExW};
         self.with(|layout| unsafe {
             let thread = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
