@@ -1026,3 +1026,39 @@ async fn tracked_display_update_failure_and_cancellation_do_not_retry() {
     assert!(book.is_poisoned());
     host.close().unwrap(); viewer.close();
 }
+
+#[tokio::test]
+async fn display_update_encoding_error_leaves_host_and_book_usable() {
+    use remote_core::{display_delivery::DisplayDelivery, host_connection::ConnectionError,
+        viewer_connection::{LoginIdentity, ViewerConnection, ViewerEvent}};
+    use remote_protocol::desktop::{DisplayInfo, PeerInfo};
+    let (socket, viewer_socket) = sockets().await;
+    let admission = AdmissionController::new(AdmissionLimits::default()).unwrap();
+    let permit = admission.admit("127.0.0.1".parse().unwrap()).unwrap();
+    let id = SessionId::new([95; 16]).unwrap();
+    let principal = Principal::new("owner".into()).unwrap();
+    let verifier = PasswordVerifier::new(id, principal.clone(), "test-only", "salt", WAIT).unwrap();
+    let mut host = HostConnection::new(socket, id, Fake::default(), verifier, permit, 512).unwrap();
+    let mut viewer = ViewerConnection::new(viewer_socket, LIMIT).unwrap();
+    let identity = LoginIdentity { target: "host".into(), viewer_id: "v".into(), viewer_name: "v".into(), wire_session_id: 95, version: "test".into() };
+    let info = PeerInfo { username: "".into(), hostname: "".into(), platform: "".into(), version: "".into(), displays: vec![], current_display: 0, sas_enabled: false, encoding: None };
+    let permissions = Permissions { view_screen: true, ..Default::default() };
+    let (_, login) = tokio::join!(async {
+        host.receive_password_login(WAIT).await.unwrap();
+        host.authorize(permissions, &mut OwnerApproval::new(id, principal, Some(permissions))).unwrap();
+        host.send_login_success(&info, WAIT).await.unwrap();
+    }, viewer.login(&identity, "test-only", WAIT));
+    login.unwrap();
+    let mut book = DisplayDelivery::new(id);
+    let display = DisplayInfo { x: 0, y: 0, width: 100, height: 100, name: "d".repeat(200), online: true, cursor_embedded: false, scale: 1.0 };
+    book.observe(&vec![display; 4]).unwrap();
+    assert!(matches!(host.send_tracked_display_update(&mut book, WAIT).await, Err(ConnectionError::Protocol(_))));
+    assert!(!book.is_poisoned()); assert_eq!(host.state(), SessionState::Connected);
+    // The rejected message must not have been sent; the next received update
+    // is the replacement empty snapshot, not the oversized local attempt.
+    book.observe(&[]).unwrap();
+    let (sent, event) = tokio::join!(host.send_tracked_display_update(&mut book, WAIT), viewer.receive(WAIT));
+    assert!(sent.unwrap());
+    assert!(matches!(event.unwrap(), ViewerEvent::PeerInfo(info) if info.displays.is_empty()));
+    host.close().unwrap(); viewer.close();
+}
