@@ -515,7 +515,7 @@ pub mod windows {
         fn move_to(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_move_to(x, y); Ok(()) }
         fn move_relative(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_move_relative(x, y); Ok(()) }
         fn mouse_down(&mut self, b: MouseButton) -> io::Result<()> { self.inner.mouse_down(button(b)).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
-        fn mouse_up(&mut self, b: MouseButton) -> io::Result<()> { self.inner.mouse_up(button(b)); Ok(()) }
+        fn mouse_up(&mut self, b: MouseButton) -> io::Result<()> { self.inner.try_mouse_button_up(button(b)).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn scroll(&mut self, x: i32, y: i32) -> io::Result<()> {
             // Source input_service emits vertical first and skips zero deltas.
             if y != 0 { self.inner.mouse_scroll_y(y); }
@@ -523,7 +523,7 @@ pub mod windows {
             Ok(())
         }
         fn key_down(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_down(Key::Raw(key.code())).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
-        fn key_up(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_up(Key::Raw(key.code())); Ok(()) }
+        fn key_up(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.try_raw_key_up(key.code()).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn scan_down(&mut self, code: ScanCode) -> io::Result<()> {
             rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::RawKey(rdev::RawKey::ScanCode(code.code() as u32))))
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("rdev scan input: {e:?}")))
@@ -1021,3 +1021,8 @@ mod partial_release_cleanup_tests {
     }
 
 }
+
+// Pure single-event result classification; no desktop input is injected.
+#[cfg(test)]
+#[path = "../../../vendor/enigo/src/win/send_result.rs"]
+mod forked_enigo_send_result_tests;

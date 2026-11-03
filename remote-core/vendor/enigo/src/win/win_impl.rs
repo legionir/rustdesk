@@ -297,6 +297,31 @@ impl KeyboardControllable for Enigo {
 }
 
 impl Enigo {
+    /// Release a raw Windows virtual key and report a detectable SendInput
+    /// failure. A successful return is not proof the target processed it. This
+    /// is a RemoteCore fork extension; source Enigo's `key_up` remains unchanged.
+    pub fn try_raw_key_up(&mut self, vk: u16) -> crate::ResultType {
+        if vk == 0 || vk > 0xfe { return Err("invalid Windows virtual key".into()); }
+        super::send_result::check_send(|| keybd_event(KEYEVENTF_KEYUP, vk, 0), get_error)
+            .map_err(|error| error.into())
+    }
+
+    /// Release one supported mouse button and report a detectable SendInput
+    /// failure. A successful return is not proof the target processed it. This
+    /// is a RemoteCore fork extension; source Enigo's `mouse_up` is unchanged.
+    pub fn try_mouse_button_up(&mut self, button: MouseButton) -> crate::ResultType {
+        let (flags, data) = match button {
+            MouseButton::Left => (MOUSEEVENTF_LEFTUP, 0),
+            MouseButton::Middle => (MOUSEEVENTF_MIDDLEUP, 0),
+            MouseButton::Right => (MOUSEEVENTF_RIGHTUP, 0),
+            MouseButton::Back => (MOUSEEVENTF_XUP, XBUTTON1 as u32),
+            MouseButton::Forward => (MOUSEEVENTF_XUP, XBUTTON2 as u32),
+            _ => return Err("unsupported mouse button".into()),
+        };
+        super::send_result::check_send(|| mouse_event(flags, data, 0, 0), get_error)
+            .map_err(|error| error.into())
+    }
+
     /// Gets the (width, height) of the main display in screen coordinates
     /// (pixels).
     ///
