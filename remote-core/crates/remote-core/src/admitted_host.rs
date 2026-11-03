@@ -12,7 +12,7 @@ use remote_protocol::MAX_PRE_AUTH_BYTES;
 use remote_rustdesk_websocket::source_crypto::{accept_pinned_host, EncryptedTransport, HandshakeError};
 use remote_security::{admission::{AdmissionError, AdmissionPermit}, PasswordVerifier};
 use remote_session::SessionId;
-use remote_transport::{AdjustableNetworkTransport, NetworkTransportError};
+use remote_transport::{AdjustableNetworkTransport, NetworkTransport, NetworkTransportError};
 use std::{error::Error, fmt, time::Duration};
 
 /// Admission, framing, key exchange or session initialization failed.

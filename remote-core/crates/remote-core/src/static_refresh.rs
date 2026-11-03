@@ -50,7 +50,7 @@ pub fn repeat_limit(codec: RefreshCodec, backend: HardwareBackend, quality: f32)
         (H264, MediaCodec) => (50, 20, 20, 10),
         (H265, MediaCodec) => (90, 20, 20, 20),
         (H264 | H265, _) => (90, 60, 60, 30),
-        (Av1 | Unknown, _) => 0,
+        (Av1 | Unknown, _) => (0, 0, 0, 0),
     };
     Ok(if quality >= BEST { best } else if quality >= BALANCED { balanced } else if quality >= SPEED { speed } else { low })
 }
