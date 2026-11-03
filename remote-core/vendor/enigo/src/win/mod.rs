@@ -1,5 +1,6 @@
 mod layout_cache;
 mod modifier_scope;
+mod mouse_plan;
 mod safe_error;
 mod send_result;
 mod win_impl;

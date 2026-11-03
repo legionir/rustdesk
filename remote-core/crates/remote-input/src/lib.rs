@@ -490,8 +490,8 @@ pub mod windows {
     /// race, but this is not proof of safety. See the Windows safety gate in
     /// docs/analysis; do not enable this backend until that gate is cleared.
     /// The fork reports zero-event SendInput results for tracked raw-key and
-    /// mouse-button releases, but other paths still hide failures. Success is
-    /// not delivery proof. Elevated/secure desktops and UIPI can block input.
+    /// mouse-button releases and movement/scroll, but other paths still hide
+    /// failures. Success is not delivery proof; secure desktops and UIPI can block input.
     pub struct WindowsInput { inner: Enigo }
     impl Default for WindowsInput { fn default() -> Self { Self::new() } }
     impl WindowsInput {
@@ -513,14 +513,14 @@ pub mod windows {
         match b { MouseButton::Left => enigo::MouseButton::Left, MouseButton::Right => enigo::MouseButton::Right, MouseButton::Middle => enigo::MouseButton::Middle, MouseButton::Back => enigo::MouseButton::Back, MouseButton::Forward => enigo::MouseButton::Forward }
     }
     impl InputBackend for WindowsInput {
-        fn move_to(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_move_to(x, y); Ok(()) }
-        fn move_relative(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.mouse_move_relative(x, y); Ok(()) }
+        fn move_to(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.try_mouse_move_to(x, y).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
+        fn move_relative(&mut self, x: i32, y: i32) -> io::Result<()> { self.inner.try_mouse_move_relative(x, y).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn mouse_down(&mut self, b: MouseButton) -> io::Result<()> { self.inner.mouse_down(button(b)).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn mouse_up(&mut self, b: MouseButton) -> io::Result<()> { self.inner.try_mouse_button_up(button(b)).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn scroll(&mut self, x: i32, y: i32) -> io::Result<()> {
             // Source input_service emits vertical first and skips zero deltas.
-            if y != 0 { self.inner.mouse_scroll_y(y); }
-            if x != 0 { self.inner.mouse_scroll_x(x); }
+            if y != 0 { self.inner.try_mouse_scroll_y(y).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?; }
+            if x != 0 { self.inner.try_mouse_scroll_x(x).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?; }
             Ok(())
         }
         fn key_down(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_down(Key::Raw(key.code())).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
@@ -1027,3 +1027,8 @@ mod partial_release_cleanup_tests {
 #[cfg(test)]
 #[path = "../../../vendor/enigo/src/win/send_result.rs"]
 mod forked_enigo_send_result_tests;
+
+// Test source-compatible coordinate math without querying or moving a desktop.
+#[cfg(test)]
+#[path = "../../../vendor/enigo/src/win/mouse_plan.rs"]
+mod forked_enigo_mouse_plan_tests;
