@@ -1,3 +1,4 @@
+mod safe_error;
 mod win_impl;
 
 pub mod keycodes;

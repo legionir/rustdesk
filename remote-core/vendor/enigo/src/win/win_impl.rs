@@ -15,7 +15,9 @@ extern "system" {
 /// The main struct for handling the event emitting
 #[derive(Default)]
 pub struct Enigo;
-static mut LAYOUT: HKL = std::ptr::null_mut();
+// Preserve the source's cached-layout semantics without unsynchronized global
+// mutable memory. Store the opaque handle as usize so the lock is Send + Sync.
+static LAYOUT: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 
 /// The dwExtraInfo value in keyboard and mouse structure that used in SendInput()
 pub const ENIGO_INPUT_EXTRA_VALUE: ULONG_PTR = 100;
@@ -55,12 +57,13 @@ fn keybd_event(mut flags: u32, vk: u16, scan: u16) -> DWORD {
     unsafe {
         // https://github.com/rustdesk/rustdesk/issues/366
         if scan == 0 {
-            if LAYOUT.is_null() {
+            let mut layout = LAYOUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if *layout == 0 {
                 let current_window_thread_id =
                     GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
-                LAYOUT = GetKeyboardLayout(current_window_thread_id);
+                *layout = GetKeyboardLayout(current_window_thread_id) as usize;
             }
-            scan = MapVirtualKeyExW(vk as _, 0, LAYOUT) as _;
+            scan = MapVirtualKeyExW(vk as _, 0, *layout as HKL) as _;
         }
     }
 
@@ -93,38 +96,23 @@ fn keybd_event(mut flags: u32, vk: u16, scan: u16) -> DWORD {
 }
 
 fn get_error() -> String {
-    unsafe {
-        let buff_size = 256;
-        let mut buff: Vec<u16> = Vec::with_capacity(buff_size);
-        buff.resize(buff_size, 0);
-        let errno = GetLastError();
-        let chars_copied = FormatMessageW(
+    // Capture first: allocations and any subsequent Windows calls may change it.
+    let errno = unsafe { GetLastError() };
+    let mut buffer = [0u16; 256];
+    let count = unsafe {
+        FormatMessageW(
             FORMAT_MESSAGE_IGNORE_INSERTS
                 | FORMAT_MESSAGE_FROM_SYSTEM
                 | FORMAT_MESSAGE_ARGUMENT_ARRAY,
             std::ptr::null(),
             errno,
             0,
-            buff.as_mut_ptr(),
-            (buff_size + 1) as u32,
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
             std::ptr::null_mut(),
-        );
-        if chars_copied == 0 {
-            return "".to_owned();
-        }
-        let mut curr_char: usize = chars_copied as usize;
-        while curr_char > 0 {
-            let ch = buff[curr_char];
-
-            if ch >= ' ' as u16 {
-                break;
-            }
-            curr_char -= 1;
-        }
-        let sl = std::slice::from_raw_parts(buff.as_ptr(), curr_char);
-        let err_msg = String::from_utf16(sl);
-        return err_msg.unwrap_or("".to_owned());
-    }
+        )
+    };
+    super::safe_error::format_error(errno, &buffer, count as usize)
 }
 
 impl MouseControllable for Enigo {
@@ -490,15 +478,12 @@ impl Enigo {
     }
 
     fn get_layoutdependent_keycode(&self, chr: char) -> u16 {
-        unsafe {
-            LAYOUT = std::ptr::null_mut();
-        }
-        // NOTE VkKeyScanW uses the current keyboard LAYOUT
-        // to specify a LAYOUT use VkKeyScanExW and GetKeyboardLayout
-        // or load one with LoadKeyboardLayoutW
+        // As in the source, update the process-wide cache whenever a Layout
+        // key is translated. Hold the same lock used by keybd_event.
+        let mut layout = LAYOUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let current_window_thread_id =
             unsafe { GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut()) };
-        unsafe { LAYOUT = GetKeyboardLayout(current_window_thread_id) };
-        unsafe { VkKeyScanExW(chr as _, LAYOUT) as _ }
+        *layout = unsafe { GetKeyboardLayout(current_window_thread_id) } as usize;
+        unsafe { VkKeyScanExW(chr as _, *layout as HKL) as _ }
     }
 }
