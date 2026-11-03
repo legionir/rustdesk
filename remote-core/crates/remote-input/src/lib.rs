@@ -131,6 +131,11 @@ impl fmt::Display for InputError {
 impl std::error::Error for InputError {}
 impl From<io::Error> for InputError { fn from(e: io::Error) -> Self { Self::Backend(e) } }
 
+// A failed explicit release is retained for a later owner-driven retry; other
+// held inputs can still be released without repeating the uncertain operation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HeldInput { Key(VirtualKey), Scan(ScanCode), RawKey(VirtualKey), Button(MouseButton) }
+
 /// State owned by one controlling session. Not a security or concurrency boundary.
 pub struct InputController<B: InputBackend> {
     backend: B,
@@ -158,8 +163,15 @@ impl<B: InputBackend> InputController<B> {
     pub fn set_permissions(&mut self, permissions: Permissions) -> Result<(), InputError> {
         if self.closed { return Err(InputError::Closed); }
         self.permissions = permissions;
-        let result = self.release(!permissions.keyboard, !permissions.mouse);
-        if result.is_err() { self.fail_closed(); }
+        let release_keys = !permissions.keyboard;
+        let release_buttons = !permissions.mouse;
+        let result = self.release(release_keys, release_buttons);
+        if result.is_err() {
+            self.fail_closed();
+            // Previously permitted categories were not included in the first
+            // cleanup pass. Release them now, without retrying failed releases.
+            let _ = self.release(!release_keys, !release_buttons);
+        }
         result
     }
 
@@ -221,7 +233,9 @@ impl<B: InputBackend> InputController<B> {
         self.allowed(self.permissions.mouse)?;
         if let Some(index) = self.buttons.iter().position(|b| *b == button) {
             if let Err(error) = self.backend.mouse_up(button) {
-                self.fail_closed(); return Err(InputError::Backend(error));
+                self.fail_closed();
+                let _ = self.release_except(true, true, Some(HeldInput::Button(button)));
+                return Err(InputError::Backend(error));
             }
             self.buttons.remove(index);
         }
@@ -271,7 +285,9 @@ impl<B: InputBackend> InputController<B> {
         self.allowed(self.permissions.keyboard)?;
         if let Some(index) = self.keys.iter().position(|k| *k == key) {
             if let Err(error) = self.backend.key_up(key) {
-                self.fail_closed(); return Err(InputError::Backend(error));
+                self.fail_closed();
+                let _ = self.release_except(true, true, Some(HeldInput::Key(key)));
+                return Err(InputError::Backend(error));
             }
             self.keys.remove(index);
         }
@@ -321,7 +337,9 @@ impl<B: InputBackend> InputController<B> {
         self.allowed(self.permissions.keyboard)?;
         if let Some(index) = self.scans.iter().position(|key| *key == code) {
             if let Err(error) = self.backend.scan_up(code) {
-                self.fail_closed(); return Err(InputError::Backend(error));
+                self.fail_closed();
+                let _ = self.release_except(true, true, Some(HeldInput::Scan(code)));
+                return Err(InputError::Backend(error));
             }
             self.scans.remove(index);
         }
@@ -358,7 +376,9 @@ impl<B: InputBackend> InputController<B> {
         self.allowed(self.permissions.keyboard)?;
         if let Some(index) = self.raw_keys.iter().position(|held| *held == key) {
             if let Err(error) = self.backend.raw_virtual_up(key) {
-                self.fail_closed(); return Err(InputError::Backend(error));
+                self.fail_closed();
+                let _ = self.release_except(true, true, Some(HeldInput::RawKey(key)));
+                return Err(InputError::Backend(error));
             }
             self.raw_keys.remove(index);
         }
@@ -413,21 +433,28 @@ impl<B: InputBackend> InputController<B> {
     }
 
     fn release(&mut self, keys: bool, buttons: bool) -> Result<(), InputError> {
+        self.release_except(keys, buttons, None)
+    }
+
+    fn release_except(&mut self, keys: bool, buttons: bool, skip: Option<HeldInput>) -> Result<(), InputError> {
         let mut first_error = None;
         if keys {
             for index in (0..self.raw_keys.len()).rev() {
+                if skip == Some(HeldInput::RawKey(self.raw_keys[index])) { continue; }
                 match self.backend.raw_virtual_up(self.raw_keys[index]) {
                     Ok(()) => { self.raw_keys.remove(index); },
                     Err(e) => { if first_error.is_none() { first_error = Some(e); } }
                 }
             }
             for index in (0..self.scans.len()).rev() {
+                if skip == Some(HeldInput::Scan(self.scans[index])) { continue; }
                 match self.backend.scan_up(self.scans[index]) {
                     Ok(()) => { self.scans.remove(index); },
                     Err(e) => { if first_error.is_none() { first_error = Some(e); } }
                 }
             }
             for index in (0..self.keys.len()).rev() {
+                if skip == Some(HeldInput::Key(self.keys[index])) { continue; }
                 match self.backend.key_up(self.keys[index]) {
                     Ok(()) => { self.keys.remove(index); },
                     Err(e) => { if first_error.is_none() { first_error = Some(e); } }
@@ -436,6 +463,7 @@ impl<B: InputBackend> InputController<B> {
         }
         if buttons {
             for index in (0..self.buttons.len()).rev() {
+                if skip == Some(HeldInput::Button(self.buttons[index])) { continue; }
                 match self.backend.mouse_up(self.buttons[index]) {
                     Ok(()) => { self.buttons.remove(index); },
                     Err(e) => { if first_error.is_none() { first_error = Some(e); } }
@@ -880,3 +908,88 @@ mod forked_enigo_layout_tests;
 #[cfg(test)]
 #[path = "../../../vendor/enigo/src/win/modifier_scope.rs"]
 mod forked_enigo_modifier_tests;
+
+#[cfg(test)]
+mod partial_release_cleanup_tests {
+    use super::*;
+    use std::{cell::RefCell, rc::Rc};
+
+    struct Backend { events: Rc<RefCell<Vec<String>>>, failures: Rc<RefCell<Vec<String>>> }
+    impl Backend {
+        fn up(&self, item: String) -> io::Result<()> {
+            self.events.borrow_mut().push(item.clone());
+            if self.failures.borrow().contains(&item) {
+                Err(io::Error::new(io::ErrorKind::Other, "uncertain release"))
+            } else { Ok(()) }
+        }
+    }
+    impl InputBackend for Backend {
+        fn move_to(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn mouse_down(&mut self, _: MouseButton) -> io::Result<()> { Ok(()) }
+        fn mouse_up(&mut self, button: MouseButton) -> io::Result<()> { self.up(format!("button:{button:?}")) }
+        fn scroll(&mut self, _: i32, _: i32) -> io::Result<()> { Ok(()) }
+        fn key_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn key_up(&mut self, key: VirtualKey) -> io::Result<()> { self.up(format!("key:{}", key.code())) }
+        fn scan_down(&mut self, _: ScanCode) -> io::Result<()> { Ok(()) }
+        fn scan_up(&mut self, key: ScanCode) -> io::Result<()> { self.up(format!("scan:{}", key.code())) }
+        fn raw_virtual_down(&mut self, _: VirtualKey) -> io::Result<()> { Ok(()) }
+        fn raw_virtual_up(&mut self, key: VirtualKey) -> io::Result<()> { self.up(format!("raw:{}", key.code())) }
+    }
+
+    #[test]
+    fn failed_explicit_release_cleans_other_records_without_retrying_it() {
+        for kind in 0..4 {
+            let events = Rc::new(RefCell::new(Vec::new()));
+            let failures = Rc::new(RefCell::new(Vec::new()));
+            let mut input = InputController::new(Backend { events: events.clone(), failures: failures.clone() });
+            input.set_permissions(Permissions { keyboard: true, mouse: true }).unwrap();
+            let a = VirtualKey::new(65).unwrap(); let b = VirtualKey::new(66).unwrap();
+            let scan_a = ScanCode::new(30).unwrap(); let scan_b = ScanCode::new(31).unwrap();
+            match kind {
+                0 => { input.key_down(a).unwrap(); input.key_down(b).unwrap(); },
+                1 => { input.scan_down(scan_a).unwrap(); input.scan_down(scan_b).unwrap(); },
+                2 => { input.raw_virtual_down(a).unwrap(); input.raw_virtual_down(b).unwrap(); },
+                _ => { input.key_down(a).unwrap(); },
+            }
+            input.mouse_down(MouseButton::Left).unwrap();
+            input.mouse_down(MouseButton::Right).unwrap();
+            let target = match kind { 0 => "key:65", 1 => "scan:30", 2 => "raw:65", _ => "button:Left" };
+            let second_failure = if kind == 3 { "key:65" } else { "button:Left" };
+            failures.borrow_mut().extend([target.to_owned(), second_failure.to_owned()]);
+            let result = match kind {
+                0 => input.key_up(a), 1 => input.scan_up(scan_a),
+                2 => input.raw_virtual_up(a), _ => input.mouse_up(MouseButton::Left),
+            };
+            assert!(matches!(result, Err(InputError::Backend(_))));
+            assert!(matches!(input.move_to(0, 0), Err(InputError::Closed)));
+            let snapshot = events.borrow().clone();
+            assert_eq!(snapshot.iter().filter(|event| event.as_str() == target).count(), 1);
+            assert_eq!(snapshot.iter().filter(|event| event.as_str() == second_failure).count(), 1);
+            assert_eq!(snapshot.iter().filter(|event| event.as_str() == "button:Right").count(), 1);
+            failures.borrow_mut().clear();
+            input.close().unwrap();
+            let snapshot = events.borrow().clone();
+            assert_eq!(snapshot.iter().filter(|event| event.as_str() == target).count(), 2);
+            assert_eq!(snapshot.iter().filter(|event| event.as_str() == second_failure).count(), 2);
+            assert_eq!(snapshot.iter().filter(|event| event.as_str() == "button:Right").count(), 1);
+            input.close().unwrap();
+            assert_eq!(snapshot, *events.borrow());
+        }
+    }
+
+    #[test]
+    fn failed_permission_revocation_also_cleans_previously_permitted_category() {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let failures = Rc::new(RefCell::new(vec!["key:65".to_owned()]));
+        let mut input = InputController::new(Backend { events: events.clone(), failures: failures.clone() });
+        input.set_permissions(Permissions { keyboard: true, mouse: true }).unwrap();
+        input.key_down(VirtualKey::new(65).unwrap()).unwrap();
+        input.mouse_down(MouseButton::Left).unwrap();
+        assert!(matches!(input.set_permissions(Permissions { keyboard: false, mouse: true }), Err(InputError::Backend(_))));
+        assert_eq!(&*events.borrow(), &["key:65", "button:Left"]);
+        assert!(matches!(input.mouse_down(MouseButton::Right), Err(InputError::Closed)));
+        failures.borrow_mut().clear();
+        input.close().unwrap();
+        assert_eq!(&*events.borrow(), &["key:65", "button:Left", "key:65"]);
+    }
+}
