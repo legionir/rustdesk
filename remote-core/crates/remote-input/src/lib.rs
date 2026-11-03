@@ -8,6 +8,8 @@
 
 /// Read-only source Unicode key sequence planning; no native injection.
 pub mod windows_unicode_plan;
+#[cfg(any(windows, test))]
+mod scroll_sequence;
 
 use std::{fmt, io};
 
@@ -519,9 +521,13 @@ pub mod windows {
         fn mouse_up(&mut self, b: MouseButton) -> io::Result<()> { self.inner.try_mouse_button_up(button(b)).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn scroll(&mut self, x: i32, y: i32) -> io::Result<()> {
             // Source input_service emits vertical first and skips zero deltas.
-            if y != 0 { self.inner.try_mouse_scroll_y(y).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?; }
-            if x != 0 { self.inner.try_mouse_scroll_x(x).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?; }
-            Ok(())
+            super::scroll_sequence::send_scroll(x, y, |axis, delta| {
+                let result = match axis {
+                    super::scroll_sequence::Axis::Vertical => self.inner.try_mouse_scroll_y(delta),
+                    super::scroll_sequence::Axis::Horizontal => self.inner.try_mouse_scroll_x(delta),
+                };
+                result.map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            })
         }
         fn key_down(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.key_down(Key::Raw(key.code())).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
         fn key_up(&mut self, key: VirtualKey) -> io::Result<()> { self.inner.try_raw_key_up(key.code()).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())) }
