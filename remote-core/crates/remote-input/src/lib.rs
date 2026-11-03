@@ -875,3 +875,8 @@ mod forked_enigo_error_tests;
 #[cfg(test)]
 #[path = "../../../vendor/enigo/src/win/layout_cache.rs"]
 mod forked_enigo_layout_tests;
+
+// Exercise source-derived partial-modifier rollback with a fake backend.
+#[cfg(test)]
+#[path = "../../../vendor/enigo/src/win/modifier_scope.rs"]
+mod forked_enigo_modifier_tests;

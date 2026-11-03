@@ -241,26 +241,15 @@ impl KeyboardControllable for Enigo {
                     let vk = code & 0x00FF;
                     let flag = code >> 8;
                     let modifiers = [Key::Shift, Key::Control, Key::Alt];
-                    let mod_len = modifiers.len();
-                    for pos in 0..mod_len {
-                        if flag & (0x0001 << pos) != 0 {
-                            self.key_down(modifiers[pos])?;
-                        }
-                    }
-
-                    let res = keybd_event(0, vk, 0);
-                    let err = if res == 0 { get_error() } else { "".to_owned() };
-
-                    for pos in 0..mod_len {
-                        let rpos = mod_len - 1 - pos;
-                        if flag & (0x0001 << rpos) != 0 {
-                            self.key_up(modifiers[rpos]);
-                        }
-                    }
-
-                    if !err.is_empty() {
-                        return Err(err.into());
-                    }
+                    super::modifier_scope::with_modifiers(
+                        self, flag,
+                        |this, pos| this.key_down(modifiers[pos]),
+                        |this, pos| this.key_up(modifiers[pos]),
+                        |_| {
+                            if keybd_event(0, vk, 0) == 0 { Err(get_error().into()) }
+                            else { Ok(()) }
+                        },
+                    )?;
                 } else {
                     return Err(format!("Failed to get keycode of {}", c).into());
                 }
