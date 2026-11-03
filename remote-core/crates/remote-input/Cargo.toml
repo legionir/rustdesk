@@ -5,5 +5,5 @@ edition = "2021"
 publish = false
 
 [target.'cfg(windows)'.dependencies]
-enigo = { path = "../../../libs/enigo" }
+enigo = { path = "../../vendor/enigo" }
 rdev = { git = "https://github.com/rustdesk-org/rdev", rev = "0904f23ce496e255461a98848b85c11fa5a62eab" }

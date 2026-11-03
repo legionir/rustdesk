@@ -1,6 +1,8 @@
 [workspace]
 members = ["crates/remote-capture", "crates/remote-codec", "crates/remote-input", "crates/remote-transport", "crates/remote-session", "crates/remote-security", "crates/remote-core", "crates/remote-protocol", "adapters/rustdesk", "bindings/node"]
 resolver = "2"
+# Keep the source-derived fork a dependency, not a default workspace test target.
+exclude = ["vendor/enigo"]
 
 # These source patches are required by the RustDesk crates used by this prototype.
 [patch.crates-io]

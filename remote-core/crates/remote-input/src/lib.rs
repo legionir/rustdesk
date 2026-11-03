@@ -865,3 +865,8 @@ mod movement_failure_tests {
         }
     }
 }
+
+// Exercise the exact fork's pure formatter without injecting desktop input.
+#[cfg(test)]
+#[path = "../../../vendor/enigo/src/win/safe_error.rs"]
+mod forked_enigo_error_tests;
