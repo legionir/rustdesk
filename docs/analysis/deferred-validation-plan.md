@@ -384,3 +384,8 @@ review the pinned Enigo `get_error` buffer-size mismatch described in
 `remaining-core-work.md`. Test returned-length boundaries and error formatting
 under a memory checker on disposable Windows, plus both mouse/key SendInput
 failure paths. No source edit or runtime confirmation has been made here.
+
+A limited subset of the Python export/auditor fixtures and JavaScript-only
+diagnostic fixtures was run on 2026-11-03. See
+`validation-results-20261103.md`; all native/Rust, Node addon and real
+two-system checks described above remain outstanding.

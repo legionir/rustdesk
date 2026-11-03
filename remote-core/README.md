@@ -241,8 +241,9 @@ It rejects unsupported workspace inheritance/globs, escaping/absolute paths
 and missing manifests instead of guessing. It does not invoke Cargo, interpret
 features, resolve remote crates, inspect build scripts/includes/native files,
 prove portability, verify hashes or replace a build. Candidate v41 at commit
-`bf4ea87` was inspected (16 manifests, 44 edges); the auditor's synthetic
-fixtures and all builds remain unrun.
+`bf4ea87` was inspected (16 manifests, 44 edges). The auditor's synthetic
+fixtures subsequently passed; current Rust and addon builds remain unverified.
+See `../docs/analysis/validation-results-20261103.md` for the limited results.
 
 The RustDesk adapter also contains experimental loopback-only TCP client and
 listener wrappers using RustDesk's existing `FramedStream` codec. These are
